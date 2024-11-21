@@ -1,0 +1,10 @@
+name: Stronghold
+main: S.Williams.stronghold.Stronghold
+version: 1.0
+api-version: 1.21
+description: A stronghold siege game mode
+commands:
+  setstronghold:
+    description: Sets the stronghold location and flattens the terrain
+  deletestrongholds:
+    description: Deletes all existing strongholds
