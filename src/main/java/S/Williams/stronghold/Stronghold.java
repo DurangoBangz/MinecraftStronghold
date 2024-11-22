@@ -93,6 +93,32 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         }
     }
 
+    private void checkPlayerCaptureCondition(List<Mob> defendingMobs) {
+        int captureRadius = RINGS[0]; // Inner ring defines the capture radius
+
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (player.getWorld().equals(strongholdCenter.getWorld())
+                    && player.getLocation().distance(strongholdCenter) <= captureRadius) {
+
+                // Player has reached the center, capture the stronghold
+                isPlayerControlled = true; // Mark the stronghold as player-controlled
+                Bukkit.broadcastMessage("The players have captured the stronghold!");
+
+                // Update the beacon to blue
+                setBeaconColor(strongholdCenter, true);
+
+                // Cancel any running offensive siege tasks
+                if (siegeTimer != null) {
+                    siegeTimer.cancel();
+                }
+
+                // End the offensive siege
+                endSiege(defendingMobs);
+                return;
+            }
+        }
+    }
+
     private void flattenTerrain(Location center) {
         World world = center.getWorld();
         int centerX = center.getBlockX();
@@ -138,7 +164,7 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         new BukkitRunnable() {
             @Override
             public void run() {
-                Bukkit.broadcastMessage("A siege has begun! Defend the stronghold!");
+                Bukkit.broadcastMessage("A mob siege has begun! Defend the stronghold!");
 
                 // Cancel any previous timer
                 if (siegeTimer != null) {
@@ -148,13 +174,14 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
                 // Spawn mobs and get the list of spawned mobs
                 List<Mob> mobs = spawnSiegeMobs();
 
-                // Start the timer
+                // Start the timer for the mob siege
                 if (mobs != null) {
-                    startSiegeTimer(mobs);
+                    startSiegeTimer(mobs); // Timer will handle `endSiege` upon completion
                 }
             }
         }.runTaskLater(this, 1200L); // Delay of 1 minute (1200 ticks)
     }
+
 
 
 
@@ -330,8 +357,14 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
 
         if (isPlayerControlled) {
             Bukkit.broadcastMessage("The siege is over. The stronghold remains player-controlled!");
+        } else {
+            Bukkit.broadcastMessage("The siege is over. The stronghold is now mob-controlled!");
         }
+
+        // Schedule the next siege
+        scheduleNextSiege();
     }
+
 
     private void startPlayerOffensiveSiege() {
         new BukkitRunnable() {
@@ -361,8 +394,8 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         return mobs;
     }
 
-    private void startPlayerSiegeTimer(List<Mob> mobs) {
-        new BukkitRunnable() {
+    private void startPlayerSiegeTimer(List<Mob> defendingMobs) {
+        siegeTimer = new BukkitRunnable() {
             int timeLeft = 60; // 60 seconds for the offensive siege
 
             @Override
@@ -370,10 +403,13 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
                 if (timeLeft <= 0) {
                     // Timer ends without player capture, stronghold remains mob-controlled
                     Bukkit.broadcastMessage("The offensive siege has failed! The stronghold remains mob-controlled.");
-                    endSiege(mobs);
+                    endSiege(defendingMobs);
                     cancel();
                     return;
                 }
+
+                // Check if a player has captured the stronghold
+                checkPlayerCaptureCondition(defendingMobs);
 
                 // Display countdown timer in Action Bar for all players
                 String timeFormatted = String.format("%02d:%02d", timeLeft / 60, timeLeft % 60); // Format as MM:SS
@@ -383,7 +419,26 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
 
                 timeLeft--;
             }
-        }.runTaskTimer(this, 0, 20L); // Runs every second (20 ticks)
+        };
+
+        siegeTimer.runTaskTimer(this, 0, 20L); // Runs every second (20 ticks)
+    }
+
+    private void scheduleNextSiege() {
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (isPlayerControlled) {
+                    // Start a mob siege after 1 minute
+                    Bukkit.broadcastMessage("The mobs are preparing to attack the stronghold!");
+                    startSiegeAfterDelay();
+                } else {
+                    // Start a player offensive siege after 1 minute
+                    Bukkit.broadcastMessage("Prepare for a player offensive siege to retake the stronghold!");
+                    startPlayerOffensiveSiege();
+                }
+            }
+        }.runTaskLater(this, 1200L); // 1 minute (1200 ticks) delay
     }
 
 
@@ -414,4 +469,6 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         }
     }
 }
+
+
 
