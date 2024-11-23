@@ -28,6 +28,11 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
     private final int RADIUS = 80; // Radius for the flat area
     private final int[] RINGS = {25, 40, 60}; // Radii for each ring
 
+
+
+
+    // start and close of plugin
+
     @Override
     public void onEnable() {
         getLogger().info("StrongHold has started!");
@@ -35,11 +40,16 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         this.getCommand("setstronghold").setExecutor(this);
         this.getCommand("deletestrongholds").setExecutor(this); // Register the delete command
     }
-
     @Override
     public void onDisable() {
         getLogger().info("StrongHold has stopped!");
     }
+
+
+
+
+
+    // set stronghold command and deletestronghold command
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
@@ -68,83 +78,6 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         }
         return false;
     }
-
-    private void createControlRings(Location center) {
-        World world = center.getWorld();
-        Material[] ringMaterials = {
-                Material.YELLOW_CONCRETE, // Inner ring
-                Material.ORANGE_CONCRETE,
-                Material.RED_CONCRETE // Outer ring
-        };
-
-        for (int i = 0; i < RINGS.length; i++) {
-            int radius = RINGS[i];
-            Material material = ringMaterials[i % ringMaterials.length]; // Choose color based on ring index
-
-            for (int degree = 0; degree < 360; degree += 5) { // Adjust 5 for denser block placement
-                double radians = Math.toRadians(degree);
-                double x = center.getX() + radius * Math.cos(radians);
-                double z = center.getZ() + radius * Math.sin(radians);
-                Location blockLoc = new Location(world, x, center.getY(), z);
-
-                // Set the block at this location to the ring material, flush with the ground
-                blockLoc.getBlock().setType(material);
-            }
-        }
-    }
-
-    private void checkPlayerCaptureCondition(List<Mob> defendingMobs) {
-        int captureRadius = RINGS[0]; // Inner ring defines the capture radius
-
-        for (Player player : Bukkit.getOnlinePlayers()) {
-            if (player.getWorld().equals(strongholdCenter.getWorld())
-                    && player.getLocation().distance(strongholdCenter) <= captureRadius) {
-
-                // Player has reached the center, capture the stronghold
-                isPlayerControlled = true; // Mark the stronghold as player-controlled
-                Bukkit.broadcastMessage("The players have captured the stronghold!");
-
-                // Update the beacon to blue
-                setBeaconColor(strongholdCenter, true);
-
-                // Cancel any running offensive siege tasks
-                if (siegeTimer != null) {
-                    siegeTimer.cancel();
-                }
-
-                // End the offensive siege
-                endSiege(defendingMobs);
-                return;
-            }
-        }
-    }
-
-    private void flattenTerrain(Location center) {
-        World world = center.getWorld();
-        int centerX = center.getBlockX();
-        int centerZ = center.getBlockZ();
-        int centerY = center.getBlockY();
-
-        // Flatten terrain in a larger circle around the center
-        for (int x = -RADIUS; x <= RADIUS; x++) {
-            for (int z = -RADIUS; z <= RADIUS; z++) {
-                if (x * x + z * z <= RADIUS * RADIUS) {
-                    Location blockLoc = new Location(world, centerX + x, centerY, centerZ + z);
-                    blockLoc.getBlock().setType(Material.GRASS_BLOCK);
-
-                    // Clear blocks above to make sure it's a flat surface
-                    for (int y = centerY + 1; y <= centerY + 5; y++) {
-                        Location airLoc = new Location(world, centerX + x, y, centerZ + z);
-                        airLoc.getBlock().setType(Material.AIR);
-                    }
-                }
-            }
-        }
-
-        // Display control rings with colored blocks
-        createControlRings(center);
-    }
-
     private void deleteStronghold() {
         World world = strongholdCenter.getWorld();
         for (int radius : RINGS) {
@@ -159,6 +92,84 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         strongholdCenter = null;
         isPlayerControlled = false;
     }
+
+
+
+    // initialize one stronghold
+
+    private void createControlRings(Location center) {
+        World world = center.getWorld();
+        Material[] ringMaterials = {
+                Material.YELLOW_CONCRETE, // Inner ring
+                Material.ORANGE_CONCRETE,
+                Material.RED_CONCRETE // Outer ring
+        };
+
+        for (int i = 0; i < RINGS.length; i++) {
+            int radius = RINGS[i];
+            Material material = ringMaterials[i % ringMaterials.length]; // Choose color based on ring index
+
+            // Calculate the height adjustment for this ring
+            int ringHeightOffset = -i;
+
+            for (int degree = 0; degree < 360; degree += 5) { // Adjust 5 for denser block placement
+                double radians = Math.toRadians(degree);
+                double x = center.getX() + radius * Math.cos(radians);
+                double z = center.getZ() + radius * Math.sin(radians);
+                Location blockLoc = new Location(world, x, center.getY() + ringHeightOffset, z);
+
+                // Set the block at this location to the ring material, flush with the calculated height
+                blockLoc.getBlock().setType(material);
+            }
+        }
+    }
+
+    private void flattenTerrain(Location center) {
+        World world = center.getWorld();
+        int centerX = center.getBlockX();
+        int centerZ = center.getBlockZ();
+        int centerY = center.getBlockY();
+
+        // Flatten terrain in a larger circle around the center
+        for (int x = -RADIUS; x <= RADIUS; x++) {
+            for (int z = -RADIUS; z <= RADIUS; z++) {
+                double distance = Math.sqrt(x * x + z * z);
+
+                if (distance <= RADIUS) {
+                    // Determine which ring the block belongs to
+                    int ringLevel = 0;
+                    for (int i = 0; i < RINGS.length; i++) {
+                        if (distance <= RINGS[i]) {
+                            ringLevel = i;
+                            break;
+                        }
+                    }
+
+                    // Calculate the height for this ring
+                    int blockY = centerY - ringLevel;
+
+                    // Set the terrain for the current block
+                    Location blockLoc = new Location(world, centerX + x, blockY, centerZ + z);
+                    blockLoc.getBlock().setType(Material.GRASS_BLOCK);
+
+                    // Clear blocks above to make sure it's a flat surface
+                    for (int y = blockY + 1; y <= centerY + 5; y++) {
+                        Location airLoc = new Location(world, centerX + x, y, centerZ + z);
+                        airLoc.getBlock().setType(Material.AIR);
+                    }
+                }
+            }
+        }
+
+        // Display control rings with colored blocks
+        createControlRings(center);
+    }
+
+
+
+
+
+    // Time delay before mob siege
 
     private void startSiegeAfterDelay() {
         new BukkitRunnable() {
@@ -184,6 +195,38 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
 
 
 
+    // Mob Siege
+
+    private void startSiegeTimer(List<Mob> mobs) {
+        // Cancel the previous timer if it exists
+        if (siegeTimer != null) {
+            siegeTimer.cancel();
+        }
+
+        siegeTimer = new BukkitRunnable() {
+            int timeLeft = 60; // 60 seconds for the siege
+
+            @Override
+            public void run() {
+                if (timeLeft <= 0) {
+                    // Timer ends without mob capture, stronghold defended
+                    endSiege(mobs, true, true); // End the siege cleanly
+                    cancel();
+                    return;
+                }
+
+                // Display the countdown timer in the Action Bar for all players
+                String timeFormatted = String.format("%02d:%02d", timeLeft / 60, timeLeft % 60); // Format as MM:SS
+                for (Player player : Bukkit.getOnlinePlayers()) {
+                    player.sendActionBar("§eSiege Time Remaining: §c" + timeFormatted);
+                }
+
+                timeLeft--;
+            }
+        };
+
+        siegeTimer.runTaskTimer(this, 0, 20L); // Runs every second (20 ticks)
+    }
 
     private List<Mob> spawnSiegeMobs() {
         if (!isPlayerControlled) return null; // Ensure stronghold is still player-controlled
@@ -198,7 +241,7 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
             spawnMobAtRandomLocation(mobs, spawnRadius, world);
         }
 
-        // Periodically check for movement toward the center
+        // Periodically check and replace dead or invalid mobs
         new BukkitRunnable() {
             @Override
             public void run() {
@@ -207,13 +250,16 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
                     return;
                 }
 
-                // Ensure mobs are guided toward the center
-                guideMobsToCenter(mobs);
+                // Remove invalid or dead mobs from the list
+                mobs.removeIf(mob -> mob == null || !mob.isValid());
 
-                // Replace dead mobs to maintain the constant count
+                // Replace missing mobs to maintain the count
                 while (mobs.size() < maxMobs) {
                     spawnMobAtRandomLocation(mobs, spawnRadius, world);
                 }
+
+                // Ensure mobs are guided toward the center
+                guideMobsToCenter(mobs);
             }
         }.runTaskTimer(this, 0, 20L); // Check and guide every second (20 ticks)
 
@@ -231,8 +277,6 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         mob.setTarget(null); // Start without a target
         mobs.add(mob);
     }
-
-
 
     private void guideMobsToCenter(List<Mob> mobs) {
         for (Mob mob : mobs) {
@@ -252,35 +296,88 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         checkCaptureCondition(mobs);
     }
 
+    private Player getNearestPlayer(Mob mob) {
+        double detectionRange = 10.0; // Range in blocks within which mobs detect players
+        Player nearestPlayer = null;
+        double nearestDistance = detectionRange;
 
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (player.getWorld().equals(mob.getWorld())) {
+                double distance = player.getLocation().distance(mob.getLocation());
+                if (distance <= nearestDistance) {
+                    nearestPlayer = player;
+                    nearestDistance = distance;
+                }
+            }
+        }
+        return nearestPlayer;
+    }
 
     private BukkitRunnable siegeTimer;
 
-    private void startSiegeTimer(List<Mob> mobs) {
-        // Cancel the previous timer if it exists
-        if (siegeTimer != null) {
-            siegeTimer.cancel();
-        }
+    private void checkCaptureCondition(List<Mob> mobs) {
+        int captureRadius = RINGS[0]; // Inner ring defines the capture radius
 
+        for (Mob mob : mobs) {
+            if (mob != null && mob.isValid() && mob.getLocation().distance(strongholdCenter) <= captureRadius) {
+
+                // Cancel the timer and end the siege
+                if (siegeTimer != null) {
+                    siegeTimer.cancel();
+                }
+
+                endSiege(mobs, false, true);
+
+
+                return;
+            }
+        }
+    }
+
+
+
+
+
+
+    // Time delay before player siege
+
+    private void startPlayerOffensiveSiege() {
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                Bukkit.broadcastMessage("A player offensive siege has begun! Capture the stronghold!");
+
+                // Spawn defending mobs inside the stronghold
+                List<Mob> defendingMobs = spawnDefendingMobs();
+
+                // Start timer for the player offensive siege
+                startPlayerSiegeTimer(defendingMobs);
+            }
+        }.runTaskLater(this, 1200L); // Delay of 1 minute (1200 ticks)
+    }
+
+    // Player Siege
+
+    private void startPlayerSiegeTimer(List<Mob> defendingMobs) {
         siegeTimer = new BukkitRunnable() {
-            int timeLeft = 60; // 60 seconds for the siege
+            int timeLeft = 60; // 60 seconds for the offensive siege
 
             @Override
             public void run() {
                 if (timeLeft <= 0) {
-                    // Timer ends without mob capture, stronghold defended
-                    for (Player player : Bukkit.getOnlinePlayers()) {
-                        player.sendActionBar("§aStronghold successfully defended!");
-                    }
-                    endSiege(mobs); // End the siege cleanly
+                    // Timer ends without player capture, stronghold remains mob-controlled
+                    endSiege(defendingMobs, false, false);
                     cancel();
                     return;
                 }
 
-                // Display the countdown timer in the Action Bar for all players
+                // Check if a player has captured the stronghold
+                checkPlayerCaptureCondition(defendingMobs);
+
+                // Display countdown timer in Action Bar for all players
                 String timeFormatted = String.format("%02d:%02d", timeLeft / 60, timeLeft % 60); // Format as MM:SS
                 for (Player player : Bukkit.getOnlinePlayers()) {
-                    player.sendActionBar("§eSiege Time Remaining: §c" + timeFormatted);
+                    player.sendActionBar("§eOffensive Siege Time Remaining: §c" + timeFormatted);
                 }
 
                 timeLeft--;
@@ -290,32 +387,66 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         siegeTimer.runTaskTimer(this, 0, 20L); // Runs every second (20 ticks)
     }
 
+    private List<Mob> spawnDefendingMobs() {
+        World world = strongholdCenter.getWorld();
+        int spawnRadius = RINGS[0]; // Spawn mobs inside the innermost ring
+        List<Mob> mobs = new ArrayList<>();
+        int maxMobs = 50; // Number of defending mobs
+
+        // Initial spawning of mobs
+        for (int i = 0; i < maxMobs; i++) {
+            spawnMobAtRandomLocation(mobs, spawnRadius, world);
+        }
+
+        // Periodically check and replace dead or invalid mobs
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (isPlayerControlled) {
+                    cancel(); // Cancel if the stronghold is recaptured by players
+                    return;
+                }
+
+                // Remove invalid or dead mobs from the list
+                mobs.removeIf(mob -> mob == null || !mob.isValid());
+
+                // Replace missing mobs to maintain the count
+                while (mobs.size() < maxMobs) {
+                    spawnMobAtRandomLocation(mobs, spawnRadius, world);
+                }
+            }
+        }.runTaskTimer(this, 0, 20L); // Check and replenish every second (20 ticks)
+
+        return mobs;
+    }
 
 
-
-    private void checkCaptureCondition(List<Mob> mobs) {
+    private void checkPlayerCaptureCondition(List<Mob> defendingMobs) {
         int captureRadius = RINGS[0]; // Inner ring defines the capture radius
 
-        for (Mob mob : mobs) {
-            if (mob != null && mob.isValid() && mob.getLocation().distance(strongholdCenter) <= captureRadius) {
-                // Mob has reached the center, capture the stronghold
-                isPlayerControlled = false; // Mark the stronghold as mob-controlled
-                Bukkit.broadcastMessage("The stronghold has been captured by mobs!");
-                setBeaconColor(strongholdCenter, false); // Set beacon to red
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (player.getWorld().equals(strongholdCenter.getWorld())
+                    && player.getLocation().distance(strongholdCenter) <= captureRadius) {
+
+
 
                 // Cancel the timer and end the siege
                 if (siegeTimer != null) {
                     siegeTimer.cancel();
                 }
 
-                endSiege(mobs);
+                endSiege(defendingMobs, true, false);
 
-                // Start a player offensive siege after 1 minute
-                startPlayerOffensiveSiege();
+
                 return;
             }
         }
     }
+
+
+
+
+    // Set Beacon color
 
     private void setBeaconColor(Location center, boolean isPlayerControlled) {
         World world = center.getWorld();
@@ -344,131 +475,68 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
 
 
 
-    private void endSiege(List<Mob> mobs) {
-        // Remove all siege mobs
-        for (Mob mob : mobs) {
-            if (mob != null && mob.isValid()) {
-                mob.remove();
+    //end sieges
+    private void endSiege(List<Mob> mobs, boolean playersWon, boolean isDefensive) {
+
+
+        // Broadcast message
+        if (playersWon) {
+            Bukkit.broadcastMessage(isDefensive
+                    ? "The stronghold was successfully defended!"
+                    : "The stronghold has been successfully captured!");
+            setBeaconColor(strongholdCenter, true); // Set beacon to blue
+            isPlayerControlled = true;
+            // Remove all mobs
+            for (Mob mob : mobs) {
+                if (mob != null && mob.isValid()) {
+                    mob.remove();
+                }
             }
-        }
-
-        // Update beacon color based on ownership
-        setBeaconColor(strongholdCenter, isPlayerControlled);
-
-        if (isPlayerControlled) {
-            Bukkit.broadcastMessage("The siege is over. The stronghold remains player-controlled!");
         } else {
-            Bukkit.broadcastMessage("The siege is over. The stronghold is now mob-controlled!");
+            Bukkit.broadcastMessage(isDefensive
+                    ? "The stronghold has fallen! Get to safety!"
+                    : "The siege has failed! Get to safety!");
+            setBeaconColor(strongholdCenter, false); // Set beacon to red
+            isPlayerControlled = false;
         }
 
-        // Schedule the next siege
-        scheduleNextSiege();
-    }
 
+        // schedule appropriate next siege
 
-    private void startPlayerOffensiveSiege() {
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                Bukkit.broadcastMessage("A player offensive siege has begun! Capture the stronghold!");
-
-                // Spawn defending mobs inside the stronghold
-                List<Mob> defendingMobs = spawnDefendingMobs();
-
-                // Start timer for the player offensive siege
-                startPlayerSiegeTimer(defendingMobs);
-            }
-        }.runTaskLater(this, 1200L); // Delay of 1 minute (1200 ticks)
-    }
-
-    private List<Mob> spawnDefendingMobs() {
-        World world = strongholdCenter.getWorld();
-        int spawnRadius = RINGS[0]; // Spawn mobs inside the innermost ring
-        List<Mob> mobs = new ArrayList<>();
-        int maxMobs = 50; // Number of defending mobs
-
-        for (int i = 0; i < maxMobs; i++) {
-            spawnMobAtRandomLocation(mobs, spawnRadius, world);
+        if (playersWon) {
+            startSiegeAfterDelay(); //  player wins
+        } else {
+            startPlayerOffensiveSiege(); //  player losses
         }
-
-        return mobs;
-    }
-
-    private void startPlayerSiegeTimer(List<Mob> defendingMobs) {
-        siegeTimer = new BukkitRunnable() {
-            int timeLeft = 60; // 60 seconds for the offensive siege
-
-            @Override
-            public void run() {
-                if (timeLeft <= 0) {
-                    // Timer ends without player capture, stronghold remains mob-controlled
-                    Bukkit.broadcastMessage("The offensive siege has failed! The stronghold remains mob-controlled.");
-                    endSiege(defendingMobs);
-                    cancel();
-                    return;
-                }
-
-                // Check if a player has captured the stronghold
-                checkPlayerCaptureCondition(defendingMobs);
-
-                // Display countdown timer in Action Bar for all players
-                String timeFormatted = String.format("%02d:%02d", timeLeft / 60, timeLeft % 60); // Format as MM:SS
-                for (Player player : Bukkit.getOnlinePlayers()) {
-                    player.sendActionBar("§eOffensive Siege Time Remaining: §c" + timeFormatted);
-                }
-
-                timeLeft--;
-            }
-        };
-
-        siegeTimer.runTaskTimer(this, 0, 20L); // Runs every second (20 ticks)
-    }
-
-    private void scheduleNextSiege() {
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                if (isPlayerControlled) {
-                    // Start a mob siege after 1 minute
-                    Bukkit.broadcastMessage("The mobs are preparing to attack the stronghold!");
-                    startSiegeAfterDelay();
-                } else {
-                    // Start a player offensive siege after 1 minute
-                    Bukkit.broadcastMessage("Prepare for a player offensive siege to retake the stronghold!");
-                    startPlayerOffensiveSiege();
-                }
-            }
-        }.runTaskLater(this, 1200L); // 1 minute (1200 ticks) delay
     }
 
 
-    private Player getNearestPlayer(Mob mob) {
-        double detectionRange = 10.0; // Range in blocks within which mobs detect players
-        Player nearestPlayer = null;
-        double nearestDistance = detectionRange;
 
-        for (Player player : Bukkit.getOnlinePlayers()) {
-            if (player.getWorld().equals(mob.getWorld())) {
-                double distance = player.getLocation().distance(mob.getLocation());
-                if (distance <= nearestDistance) {
-                    nearestPlayer = player;
-                    nearestDistance = distance;
-                }
-            }
-        }
-        return nearestPlayer;
-    }
+
+
+
+
+    // Passive - ensure no mobs spawn during siege that are not supposed to be there
 
     @EventHandler
     public void onCreatureSpawn(CreatureSpawnEvent event) {
-        // Cancel any hostile mob spawns unless they are part of the siege
-        if (event.getEntityType() == EntityType.ZOMBIE || event.getEntityType() == EntityType.SKELETON || event.getEntityType() == EntityType.CREEPER || event.getEntityType() == EntityType.SPIDER || event.getEntityType() == EntityType.ENDERMAN || event.getEntityType() == EntityType.ZOMBIE_VILLAGER || event.getEntityType() == EntityType.WITCH) {
-            if (event.getSpawnReason() != CreatureSpawnEvent.SpawnReason.CUSTOM) {
-                event.setCancelled(true);
-            }
+        // Cancel all hostile mob spawns unless they are custom spawns by your plugin
+        if (event.getEntity() instanceof Mob && isHostileMob(event.getEntityType()) &&
+                event.getSpawnReason() != CreatureSpawnEvent.SpawnReason.CUSTOM) {
+            event.setCancelled(true);
         }
     }
+
+    // Utility method to check if a mob type is hostile
+    private boolean isHostileMob(EntityType entityType) {
+        return switch (entityType) {
+            case ZOMBIE, SKELETON, CREEPER, SPIDER, ENDERMAN, ZOMBIE_VILLAGER, WITCH -> true;
+            default -> false;
+        };
+    }
 }
+
+
 
 
 
