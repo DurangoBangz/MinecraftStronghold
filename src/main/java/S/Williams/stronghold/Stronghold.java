@@ -25,6 +25,7 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
 
     private Location strongholdCenter;
     private boolean isPlayerControlled = true; // Indicates stronghold ownership
+    private boolean siegeActive = false; // Indicates siege is Active
     private final int RADIUS = 80; // Radius for the flat area
     private final int[] RINGS = {25, 40, 60}; // Radii for each ring
 
@@ -176,6 +177,7 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
             @Override
             public void run() {
                 Bukkit.broadcastMessage("A mob siege has begun! Defend the stronghold!");
+                siegeActive = true;
 
                 // Cancel any previous timer
                 if (siegeTimer != null) {
@@ -211,6 +213,7 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
                 if (timeLeft <= 0) {
                     // Timer ends without mob capture, stronghold defended
                     endSiege(mobs, true, true); // End the siege cleanly
+                    siegeActive = false;
                     cancel();
                     return;
                 }
@@ -245,7 +248,7 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         new BukkitRunnable() {
             @Override
             public void run() {
-                if (!isPlayerControlled) {
+                if (!siegeActive) {
                     cancel();
                     return;
                 }
@@ -326,6 +329,7 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
                     siegeTimer.cancel();
                 }
 
+                siegeActive = false;
                 endSiege(mobs, false, true);
 
 
@@ -346,6 +350,7 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
             @Override
             public void run() {
                 Bukkit.broadcastMessage("A player offensive siege has begun! Capture the stronghold!");
+                siegeActive = true;
 
                 // Spawn defending mobs inside the stronghold
                 List<Mob> defendingMobs = spawnDefendingMobs();
@@ -366,6 +371,7 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
             public void run() {
                 if (timeLeft <= 0) {
                     // Timer ends without player capture, stronghold remains mob-controlled
+                    siegeActive = false;
                     endSiege(defendingMobs, false, false);
                     cancel();
                     return;
@@ -402,7 +408,7 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         new BukkitRunnable() {
             @Override
             public void run() {
-                if (isPlayerControlled) {
+                if (!siegeActive) {
                     cancel(); // Cancel if the stronghold is recaptured by players
                     return;
                 }
@@ -434,7 +440,7 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
                 if (siegeTimer != null) {
                     siegeTimer.cancel();
                 }
-
+                siegeActive = false;
                 endSiege(defendingMobs, true, false);
 
 
@@ -535,8 +541,4 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         };
     }
 }
-
-
-
-
 
