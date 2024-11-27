@@ -21,6 +21,36 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
+import org.bukkit.entity.Zombie;
+import org.bukkit.inventory.ItemStack;
+
+
+import org.bukkit.potion.PotionEffect;
+import org.bukkit.potion.PotionEffectType;
+import org.bukkit.Particle;
+
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.entity.EntityDeathEvent;
+
+import org.bukkit.boss.BossBar;
+import org.bukkit.boss.BarColor;
+import org.bukkit.boss.BarStyle;
+import org.bukkit.attribute.Attribute;
+
+import net.md_5.bungee.api.chat.TextComponent;
+import net.md_5.bungee.api.ChatMessageType;
+
+import org.bukkit.block.Banner;
+import org.bukkit.block.banner.Pattern;
+import org.bukkit.block.banner.PatternType;
+import org.bukkit.DyeColor;
+import org.bukkit.entity.Firework;
+import org.bukkit.inventory.meta.FireworkMeta;
+import org.bukkit.FireworkEffect;
+import org.bukkit.Color;
+
+
+
 public class Stronghold extends JavaPlugin implements Listener, CommandExecutor {
 
     private Location strongholdCenter;
@@ -29,8 +59,83 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
     private final int RADIUS = 80; // Radius for the flat area
     private final int[] RINGS = {25, 40, 60}; // Radii for each ring
 
+    private final int BANNER_SPACING = 15; // Distance between banners on the perimeter
+    private final Material BANNER_MATERIAL = Material.BLUE_BANNER; // Default banner material
 
+    private List<Location> bannerLocations = new ArrayList<>(); // To track banner locations
 
+    // banner stuff
+    // Create banners around the perimeter
+    private void placeBanners(Location center) {
+        World world = center.getWorld();
+        int radius = RINGS[RINGS.length - 1]; // Outer ring radius
+
+        // Clear any existing banners
+        for (Location bannerLoc : bannerLocations) {
+            if (bannerLoc.getBlock().getState() instanceof Banner) {
+                bannerLoc.getBlock().setType(Material.AIR);
+            }
+        }
+        bannerLocations.clear();
+
+        // Place banners at intervals
+        for (int degree = 0; degree < 360; degree += BANNER_SPACING) {
+            double radians = Math.toRadians(degree);
+            double x = center.getX() + radius * Math.cos(radians);
+            double z = center.getZ() + radius * Math.sin(radians);
+            Location bannerLoc = new Location(world, x, center.getY(), z);
+
+            // Place the banner
+            bannerLoc.getBlock().setType(BANNER_MATERIAL);
+            bannerLocations.add(bannerLoc);
+        }
+
+        // Update banners to match ownership
+        updateBannerColors(isPlayerControlled);
+    }
+
+    // Update banner colors based on ownership
+    private void updateBannerColors(boolean isPlayerOwned) {
+        DyeColor color = isPlayerOwned ? DyeColor.BLUE : DyeColor.RED;
+
+        for (Location bannerLoc : bannerLocations) {
+            if (bannerLoc.getBlock().getState() instanceof Banner) {
+                Banner banner = (Banner) bannerLoc.getBlock().getState();
+                banner.setBaseColor(color);
+                banner.getPatterns().clear(); // Clear existing patterns
+                banner.addPattern(new Pattern(color, PatternType.STRIPE_DOWNRIGHT));
+                banner.update();
+            }
+        }
+    }
+
+    // Fireworks effect on player victory
+    private void launchFireworks(Location center) {
+        World world = center.getWorld();
+        int radius = RINGS[RINGS.length - 1]; // Outer ring radius
+
+        // Launch fireworks at multiple positions
+        for (int degree = 0; degree < 360; degree += 45) {
+            double radians = Math.toRadians(degree);
+            double x = center.getX() + radius * Math.cos(radians);
+            double z = center.getZ() + radius * Math.sin(radians);
+            Location fireworkLoc = new Location(world, x, center.getY() + 2, z);
+
+            Firework firework = world.spawn(fireworkLoc, Firework.class);
+            FireworkMeta fireworkMeta = firework.getFireworkMeta();
+
+            // Randomize firework effects
+            fireworkMeta.addEffect(FireworkEffect.builder()
+                    .with(FireworkEffect.Type.BALL_LARGE)
+                    .withColor(Color.RED, Color.BLUE, Color.WHITE)
+                    .withFade(Color.ORANGE, Color.YELLOW)
+                    .withTrail()
+                    .withFlicker()
+                    .build());
+            fireworkMeta.setPower(1); // Duration of firework
+            firework.setFireworkMeta(fireworkMeta);
+        }
+    }
 
     // start and close of plugin
 
@@ -164,6 +269,8 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
 
         // Display control rings with colored blocks
         createControlRings(center);
+        // Place banners around the perimeter
+        placeBanners(center);
     }
 
 
@@ -270,16 +377,40 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
     }
 
 
+
+
     private void spawnMobAtRandomLocation(List<Mob> mobs, int spawnRadius, World world) {
         double angle = Math.toRadians(new Random().nextInt(360));
         double x = strongholdCenter.getX() + spawnRadius * Math.cos(angle);
         double z = strongholdCenter.getZ() + spawnRadius * Math.sin(angle);
         Location spawnLocation = new Location(world, x, strongholdCenter.getY() + 4, z);
 
-        Mob mob = (Mob) world.spawnEntity(spawnLocation, EntityType.ZOMBIE); // Change to preferred mob type
-        mob.setTarget(null); // Start without a target
-        mobs.add(mob);
+        // Spawn a zombie and cast it explicitly
+        Zombie zombie = (Zombie) world.spawnEntity(spawnLocation, EntityType.ZOMBIE);
+        zombie.setTarget(null); // Start without a target
+
+        // Equip zombie with full iron armor
+        zombie.getEquipment().setHelmet(new ItemStack(Material.IRON_HELMET));
+        zombie.getEquipment().setChestplate(new ItemStack(Material.IRON_CHESTPLATE));
+        zombie.getEquipment().setLeggings(new ItemStack(Material.IRON_LEGGINGS));
+        zombie.getEquipment().setBoots(new ItemStack(Material.IRON_BOOTS));
+
+        // Equip zombie with a weapon (randomly choose between sword and axe)
+        ItemStack weapon = new ItemStack(new Random().nextBoolean() ? Material.IRON_SWORD : Material.IRON_AXE);
+        zombie.getEquipment().setItemInMainHand(weapon);
+
+        // Prevent the zombie from dropping items
+        zombie.getEquipment().setHelmetDropChance(0);
+        zombie.getEquipment().setChestplateDropChance(0);
+        zombie.getEquipment().setLeggingsDropChance(0);
+        zombie.getEquipment().setBootsDropChance(0);
+        zombie.getEquipment().setItemInMainHandDropChance(0);
+
+        // Add the zombie to the mobs list
+        mobs.add(zombie);
     }
+
+
 
     private void guideMobsToCenter(List<Mob> mobs) {
         for (Mob mob : mobs) {
@@ -319,26 +450,84 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
     private BukkitRunnable siegeTimer;
 
     private void checkCaptureCondition(List<Mob> mobs) {
-        int captureRadius = RINGS[0]; // Inner ring defines the capture radius
+        int captureRadius = RINGS[0];
+        int requiredMobs = 10;
 
-        for (Mob mob : mobs) {
-            if (mob != null && mob.isValid() && mob.getLocation().distance(strongholdCenter) <= captureRadius) {
-
-                // Cancel the timer and end the siege
-                if (siegeTimer != null) {
-                    siegeTimer.cancel();
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (!siegeActive) {
+                    cancel();
+                    if (defensiveCircleBar != null) {
+                        defensiveCircleBar.removeAll(); // Remove the BossBar
+                        defensiveCircleBar = null; // Reset BossBar reference
+                    }
+                    return;
                 }
 
-                siegeActive = false;
-                endSiege(mobs, false, true);
+                int mobsInRadius = 0;
 
+                for (Mob mob : mobs) {
+                    if (mob != null && mob.isValid() && mob.getLocation().distance(strongholdCenter) <= captureRadius) {
+                        mobsInRadius++;
+                    }
+                }
 
-                return;
+                updateDefensiveCircleBar(mobsInRadius, requiredMobs); // Update the BossBar
+
+                if (mobsInRadius >= requiredMobs) {
+                    if (siegeTimer != null) {
+                        siegeTimer.cancel();
+                    }
+                    siegeActive = false;
+                    endSiege(mobs, false, true);
+                    cancel();
+                }
             }
+        }.runTaskTimer(this, 0, 20L);
+    }
+
+
+
+
+
+
+
+
+
+
+    private BossBar offensiveKillBar; // For offensive siege (mobs killed)
+    private BossBar defensiveCircleBar; // For defensive siege (mobs in circle)
+
+    private void updateOffensiveKillBar(int totalKills, int requiredKills) {
+        if (offensiveKillBar == null) {
+            offensiveKillBar = Bukkit.createBossBar("§cMobs Killed", BarColor.RED, BarStyle.SEGMENTED_10);
+            for (Player player : Bukkit.getOnlinePlayers()) {
+                offensiveKillBar.addPlayer(player);
+            }
+        }
+        offensiveKillBar.setTitle("§cMobs Killed: " + totalKills + " / " + requiredKills);
+        offensiveKillBar.setProgress(Math.min(1.0, (double) totalKills / requiredKills));
+    }
+
+    private void updateTimeRemainingActionBar(int timeLeft) {
+        String timeFormatted = String.format("%02d:%02d", timeLeft / 60, timeLeft % 60);
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            player.spigot().sendMessage(ChatMessageType.ACTION_BAR, TextComponent.fromLegacyText("§eTime Remaining: §c" + timeFormatted));
         }
     }
 
 
+    private void updateDefensiveCircleBar(int mobsInRadius, int requiredMobs) {
+        if (defensiveCircleBar == null) {
+            defensiveCircleBar = Bukkit.createBossBar("§eMobs in Circle", BarColor.YELLOW, BarStyle.SEGMENTED_10);
+            for (Player player : Bukkit.getOnlinePlayers()) {
+                defensiveCircleBar.addPlayer(player);
+            }
+        }
+        defensiveCircleBar.setTitle("§eMobs in Circle: " + mobsInRadius + " / " + requiredMobs);
+        defensiveCircleBar.setProgress(Math.min(1.0, (double) mobsInRadius / requiredMobs));
+    }
 
 
 
@@ -351,7 +540,7 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
             public void run() {
                 Bukkit.broadcastMessage("A player offensive siege has begun! Capture the stronghold!");
                 siegeActive = true;
-
+                isOffensiveSiege = true; // Mark as offensive siege
                 // Spawn defending mobs inside the stronghold
                 List<Mob> defendingMobs = spawnDefendingMobs();
 
@@ -361,37 +550,58 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         }.runTaskLater(this, 1200L); // Delay of 1 minute (1200 ticks)
     }
 
+    // new stuff
+
+
+    private void updateKillCountActionBar() {
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            player.spigot().sendMessage(ChatMessageType.ACTION_BAR, TextComponent.fromLegacyText("§eMobs Killed: §c" + totalKills + " / " + requiredKills));
+        }
+    }
+
+    private void updateMobsInCircleActionBar(int mobsInRadius, int requiredMobs) {
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            player.spigot().sendMessage(ChatMessageType.ACTION_BAR, TextComponent.fromLegacyText("§cMobs in Ring: §e" + mobsInRadius + " / " + requiredMobs));
+        }
+    }
+
+
+    private boolean isOffensiveSiege = false; // Track if the current siege is offensive
+
+
     // Player Siege
 
     private void startPlayerSiegeTimer(List<Mob> defendingMobs) {
         siegeTimer = new BukkitRunnable() {
-            int timeLeft = 60; // 60 seconds for the offensive siege
+            int timeLeft = 120; // 120 seconds for the offensive siege
 
             @Override
             public void run() {
                 if (timeLeft <= 0) {
-                    // Timer ends without player capture, stronghold remains mob-controlled
+                    // Timer ends without player capture
+                    removeBossMob(); // Ensure the boss is removed
                     siegeActive = false;
-                    endSiege(defendingMobs, false, false);
+                    isOffensiveSiege = false;
+                    endSiege(defendingMobs, false, false); // Players lose the offensive siege
                     cancel();
                     return;
                 }
 
-                // Check if a player has captured the stronghold
-                checkPlayerCaptureCondition(defendingMobs);
+                // Update time remaining
+                updateTimeRemainingActionBar(timeLeft);
 
-                // Display countdown timer in Action Bar for all players
-                String timeFormatted = String.format("%02d:%02d", timeLeft / 60, timeLeft % 60); // Format as MM:SS
-                for (Player player : Bukkit.getOnlinePlayers()) {
-                    player.sendActionBar("§eOffensive Siege Time Remaining: §c" + timeFormatted);
-                }
+                // Check if players have met the requirements
+                checkPlayerCaptureCondition(defendingMobs);
 
                 timeLeft--;
             }
         };
 
-        siegeTimer.runTaskTimer(this, 0, 20L); // Runs every second (20 ticks)
+        siegeTimer.runTaskTimer(this, 0, 20L);
     }
+
+
+
 
     private List<Mob> spawnDefendingMobs() {
         World world = strongholdCenter.getWorld();
@@ -420,34 +630,135 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
                 while (mobs.size() < maxMobs) {
                     spawnMobAtRandomLocation(mobs, spawnRadius, world);
                 }
+
+                // Continuously update the action bar with kill count
+                for (Player player : Bukkit.getOnlinePlayers()) {
+                    player.sendActionBar("§eMobs Killed: §c" + totalKills + " / " + requiredKills);
+                }
             }
         }.runTaskTimer(this, 0, 20L); // Check and replenish every second (20 ticks)
 
         return mobs;
     }
 
+    private int totalKills = 0; // Track total kills across all players
+    private final int requiredKills = 5; // Number of mobs players need to kill
 
     private void checkPlayerCaptureCondition(List<Mob> defendingMobs) {
-        int captureRadius = RINGS[0]; // Inner ring defines the capture radius
+        if (totalKills >= requiredKills) {
+            spawnBossMob(defendingMobs); // Spawn the final boss mob
+            totalKills = 0; // Reset the kill counter for the next phase
 
-        for (Player player : Bukkit.getOnlinePlayers()) {
-            if (player.getWorld().equals(strongholdCenter.getWorld())
-                    && player.getLocation().distance(strongholdCenter) <= captureRadius) {
+            // Ensure the mob kill bar is removed
+            if (offensiveKillBar != null) {
+                offensiveKillBar.removeAll(); // Remove the BossBar
+                offensiveKillBar = null; // Nullify the reference
+            }
+        } else if (!bossSpawned) { // Only update if the boss hasn't spawned
+            updateOffensiveKillBar(totalKills, requiredKills);
+        }
+    }
 
 
+    @EventHandler
+    public void onEntityDeath(EntityDeathEvent event) {
+        if (!siegeActive || !isOffensiveSiege) return; // Only run during active offensive siege
 
-                // Cancel the timer and end the siege
-                if (siegeTimer != null) {
-                    siegeTimer.cancel();
-                }
-                siegeActive = false;
-                endSiege(defendingMobs, true, false);
-
-
-                return;
+        if (event.getEntity().getKiller() != null && event.getEntity() instanceof Mob) { // Ensure a player killed the mob
+            if (!bossSpawned) { // Only increment and update if the boss hasn't spawned
+                totalKills++; // Increment global kill counter
+                updateOffensiveKillBar(totalKills, requiredKills); // Update the BossBar
             }
         }
     }
+
+
+
+
+
+
+
+    private BossBar bossBar; // Global variable to track the boss bar
+
+    private boolean bossSpawned = false; // Track if the boss has been spawned
+
+    private Zombie bossMob; // Add this global variable to keep track of the boss mob
+
+    private void spawnBossMob(List<Mob> defendingMobs) {
+        if (bossSpawned) return; // Prevent multiple boss spawns
+        bossSpawned = true; // Mark boss as spawned
+
+        World world = strongholdCenter.getWorld();
+        Location spawnLocation = strongholdCenter.clone().add(0, 2, 0);
+
+        // Spawn the boss mob and store the reference
+        bossMob = (Zombie) world.spawnEntity(spawnLocation, EntityType.ZOMBIE);
+
+        bossMob.setCustomName("§cBoss Zombie");
+        bossMob.setCustomNameVisible(true);
+        bossMob.setPersistent(true);
+        bossMob.getAttribute(Attribute.GENERIC_MAX_HEALTH).setBaseValue(100.0);
+        bossMob.setHealth(100.0);
+        bossMob.setCanPickupItems(false);
+
+        bossMob.getEquipment().setHelmet(new ItemStack(Material.NETHERITE_HELMET));
+        bossMob.getEquipment().setChestplate(new ItemStack(Material.NETHERITE_CHESTPLATE));
+        bossMob.getEquipment().setLeggings(new ItemStack(Material.NETHERITE_LEGGINGS));
+        bossMob.getEquipment().setBoots(new ItemStack(Material.NETHERITE_BOOTS));
+        bossMob.getEquipment().setItemInMainHand(new ItemStack(Material.NETHERITE_SWORD));
+
+        bossMob.addPotionEffect(new PotionEffect(PotionEffectType.GLOWING, Integer.MAX_VALUE, 1, false, false));
+
+        // Create BossBar for the boss
+        bossBar = Bukkit.createBossBar("§cBoss Zombie", BarColor.RED, BarStyle.SEGMENTED_10);
+        bossBar.setProgress(1.0);
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            bossBar.addPlayer(player);
+        }
+
+        // Update BossBar progress
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (!bossMob.isValid()) {
+                    cancel();
+                    bossBar.removeAll();
+                    endBossFight(defendingMobs);
+                    return;
+                }
+                double progress = bossMob.getHealth() / bossMob.getAttribute(Attribute.GENERIC_MAX_HEALTH).getValue();
+                bossBar.setProgress(progress);
+            }
+        }.runTaskTimer(this, 0, 20L);
+
+        // Add particle effects
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (!bossMob.isValid()) {
+                    cancel();
+                    return;
+                }
+                world.spawnParticle(Particle.ELECTRIC_SPARK, bossMob.getLocation(), 30, 1, 1, 1, 0.1);
+            }
+        }.runTaskTimer(this, 0, 10L);
+    }
+
+
+
+
+    private void endBossFight(List<Mob> defendingMobs) {
+        Bukkit.broadcastMessage("§aThe Boss has been defeated! The stronghold is now player-controlled!");
+        removeBossMob(); // Ensure the boss is removed
+        siegeActive = false;
+        endSiege(defendingMobs, true, false);
+        if (siegeTimer != null) {
+            siegeTimer.cancel();
+        }
+    }
+
+
+
 
 
 
@@ -479,11 +790,24 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
     }
 
 
-
-
     //end sieges
     private void endSiege(List<Mob> mobs, boolean playersWon, boolean isDefensive) {
+        if (bossSpawned) {
+            // Remove the boss mob if it exists
+            if (bossMob != null && bossMob.isValid()) {
+                bossMob.remove();
+            }
+            bossMob = null; // Clear the reference
+            bossSpawned = false; // Reset the boss spawn flag
 
+            // Remove the boss bar
+            if (bossBar != null) {
+                bossBar.removeAll();
+                bossBar = null;
+            }
+        }
+
+        isOffensiveSiege = false;
 
         // Broadcast message
         if (playersWon) {
@@ -491,30 +815,45 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
                     ? "The stronghold was successfully defended!"
                     : "The stronghold has been successfully captured!");
             setBeaconColor(strongholdCenter, true); // Set beacon to blue
+            updateBannerColors(true); // Update banners to blue
             isPlayerControlled = true;
-            // Remove all mobs
-            for (Mob mob : mobs) {
-                if (mob != null && mob.isValid()) {
-                    mob.remove();
-                }
-            }
+
+            // Fireworks celebration
+            launchFireworks(strongholdCenter);
+
         } else {
             Bukkit.broadcastMessage(isDefensive
                     ? "The stronghold has fallen! Get to safety!"
                     : "The siege has failed! Get to safety!");
             setBeaconColor(strongholdCenter, false); // Set beacon to red
+            updateBannerColors(false); // Update banners to red
             isPlayerControlled = false;
         }
 
-
-        // schedule appropriate next siege
-
+        // Schedule the next siege
         if (playersWon) {
-            startSiegeAfterDelay(); //  player wins
+            startSiegeAfterDelay();
         } else {
-            startPlayerOffensiveSiege(); //  player losses
+            startPlayerOffensiveSiege();
         }
     }
+
+
+
+    private void removeBossMob() {
+        if (bossMob != null && bossMob.isValid()) {
+            bossMob.remove(); // Remove the boss mob from the world
+        }
+        bossMob = null; // Clear the reference
+        bossSpawned = false; // Reset the spawn flag
+
+        // Remove the boss bar if it exists
+        if (bossBar != null) {
+            bossBar.removeAll();
+            bossBar = null;
+        }
+    }
+
 
 
 
