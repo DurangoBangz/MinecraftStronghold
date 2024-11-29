@@ -19,7 +19,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 import org.bukkit.inventory.ItemStack;
-
 import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.boss.BossBar;
 import org.bukkit.boss.BarColor;
@@ -27,8 +26,6 @@ import org.bukkit.boss.BarStyle;
 import org.bukkit.attribute.Attribute;
 import net.md_5.bungee.api.chat.TextComponent;
 import net.md_5.bungee.api.ChatMessageType;
-import org.bukkit.block.Banner;
-import org.bukkit.DyeColor;
 import org.bukkit.entity.Firework;
 import org.bukkit.inventory.meta.FireworkMeta;
 import org.bukkit.FireworkEffect;
@@ -37,9 +34,11 @@ import org.bukkit.block.BlockFace; // Ensure this is imported
 import org.bukkit.block.data.Directional; // Import the Directional interface
 import java.util.Map;
 import java.util.HashMap;
-
 import org.bukkit.entity.Piglin;
 import org.bukkit.entity.PiglinBrute;
+import org.bukkit.entity.TNTPrimed;
+import org.bukkit.util.Vector;
+
 
 public class Stronghold extends JavaPlugin implements Listener, CommandExecutor {
 
@@ -341,6 +340,8 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         if (siegeTimer != null) {
             siegeTimer.cancel();
         }
+        // Spawn TNT cannons
+        spawnTNTCannons(strongholdCenter);
 
         siegeTimer = new BukkitRunnable() {
             int timeLeft = 60; // 60 seconds for the siege
@@ -373,7 +374,8 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         World world = strongholdCenter.getWorld();
         int spawnRadius = RINGS[RINGS.length - 1]; // Spawn mobs at the outermost ring
         List<Mob> mobs = new ArrayList<>();
-        int maxMobs = 50; // Maintain a constant mob count
+
+        int maxMobs = 25; // Maintain a constant mob count
 
         // Initial spawning of mobs
         for (int i = 0; i < maxMobs; i++) {
@@ -761,7 +763,7 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         if (bossSpawned) {
             removeBossMob();
         }
-
+        removeTNTCannons(); // cleanup tnt cannons
         removeOffensiveKillBar(); // Ensure the offensive kill bar is cleared
 
         // Determine ownership based on siege outcome
@@ -833,6 +835,80 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
 
 
 
+
+    // Siege Mechanics Section
+    private final List<Location> cannonLocations = new ArrayList<>(); // Store TNT cannon locations
+
+    private void spawnTNTCannons(Location center) {
+        World world = center.getWorld();
+        int radius = RINGS[RINGS.length - 1]; // Outer ring radius
+        double angleStep = Math.toRadians(360 / 4); // Divide circle into 4 parts
+
+        // Place cannons equidistant around the stronghold
+        for (int i = 0; i < 4; i++) {
+            double angle = i * angleStep;
+            double x = center.getX() + radius * Math.cos(angle);
+            double z = center.getZ() + radius * Math.sin(angle);
+            Location cannonLoc = new Location(world, x, center.getY(), z);
+
+            // Spawn the cannon (using Dispenser block as visual representation)
+            cannonLoc.getBlock().setType(Material.DISPENSER);
+
+            // Store the cannon location
+            cannonLocations.add(cannonLoc);
+
+            // Start firing TNT
+            startCannonFiring(cannonLoc);
+        }
+    }
+
+    private void startCannonFiring(Location cannonLoc) {
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                // Stop firing if the cannon no longer exists
+                if (cannonLoc.getBlock().getType() != Material.DISPENSER) {
+                    cancel();
+                    return;
+                }
+
+                // Launch TNT from cannon location
+                World world = cannonLoc.getWorld();
+                Location tntSpawnLoc = cannonLoc.clone().add(0, 1, 0); // Spawn TNT above the dispenser
+                TNTPrimed tnt = world.spawn(tntSpawnLoc, TNTPrimed.class);
+
+                // Calculate direction toward the center ring
+                Vector direction = strongholdCenter.clone()
+                        .add(0, -2, 0) // Adjust target slightly downward for better landing
+                        .toVector()
+                        .subtract(tntSpawnLoc.toVector())
+                        .normalize();
+
+                // Scale the vector to control the distance and trajectory
+                double speed = 1.5; // Adjust this value for further or shorter distances
+                direction.multiply(speed);
+                direction.setY(0.7); // Add an upward angle for a parabolic trajectory
+
+                // Set the velocity and fuse time
+                tnt.setVelocity(direction);
+                tnt.setFuseTicks(80); // 4 seconds before explosion
+            }
+        }.runTaskTimer(this, 0L, 600L); // 30 seconds (600 ticks) between shots
+    }
+
+
+
+    private void removeTNTCannons() {
+        // Remove all cannon blocks and clear the list
+        for (Location cannonLoc : cannonLocations) {
+            cannonLoc.getBlock().setType(Material.AIR); // Remove cannon
+        }
+        cannonLocations.clear();
+    }
+
+
+
+
     // Passive - ensure no mobs spawn during siege that are not supposed to be there
     @EventHandler
     public void onCreatureSpawn(CreatureSpawnEvent event) {
@@ -850,4 +926,5 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         };
     }
 }
+
 
