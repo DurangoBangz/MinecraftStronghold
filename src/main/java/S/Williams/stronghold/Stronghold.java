@@ -1,5 +1,8 @@
 package S.Williams.stronghold;
 
+// Notes:
+// promising text pack https://www.planetminecraft.com/texture-pack/better-piglins/
+
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -38,6 +41,9 @@ import org.bukkit.entity.Piglin;
 import org.bukkit.entity.PiglinBrute;
 import org.bukkit.entity.TNTPrimed;
 import org.bukkit.util.Vector;
+import org.bukkit.entity.Hoglin;
+import org.bukkit.event.entity.PiglinBarterEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
 
 
 public class Stronghold extends JavaPlugin implements Listener, CommandExecutor {
@@ -183,7 +189,10 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         getServer().getPluginManager().registerEvents(this, this);
         this.getCommand("setstronghold").setExecutor(this);
         this.getCommand("deletestrongholds").setExecutor(this); // Register the delete command
+
+        registerCustomMobs(); // Register custom mobs
     }
+
     @Override
     public void onDisable() {
         getLogger().info("StrongHold has stopped!");
@@ -318,6 +327,13 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
                 Bukkit.broadcastMessage("A mob siege has begun! Defend the stronghold!");
                 siegeActive = true;
 
+                // Set the weather to rain
+                World world = strongholdCenter.getWorld();
+                if (world != null) {
+                    world.setStorm(true); // Enable rain
+                    world.setWeatherDuration(1200 * 5); // Rain for at least 5 minutes
+                }
+
                 // Cancel any previous timer
                 if (siegeTimer != null) {
                     siegeTimer.cancel();
@@ -328,7 +344,7 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
 
                 // Start the timer for the mob siege
                 if (mobs != null) {
-                    startSiegeTimer(mobs); // Timer will handle `endSiege` upon completion
+                    startSiegeTimer(mobs); // Timer will handle endSiege upon completion
                 }
             }
         }.runTaskLater(this, 1200L); // Delay of 1 minute (1200 ticks)
@@ -412,32 +428,124 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         double z = strongholdCenter.getZ() + spawnRadius * Math.sin(angle);
         Location spawnLocation = new Location(world, x, strongholdCenter.getY() + 4, z);
 
-        // Spawn a Piglin
-        Piglin piglin = (Piglin) world.spawnEntity(spawnLocation, EntityType.PIGLIN);
-        piglin.setImmuneToZombification(true); // Make Piglin immune to zombification
-        piglin.setPersistent(true); // Prevent despawning
-        piglin.getAttribute(Attribute.GENERIC_MAX_HEALTH).setBaseValue(20.0); // Set health
-        piglin.setHealth(20.0);
+        // Use the weighted random selection method
+        CustomMobConfig config = getRandomMobConfig();
 
-        // Equip Piglin with armor
-        piglin.getEquipment().setHelmet(new ItemStack(Material.IRON_HELMET));
-        piglin.getEquipment().setChestplate(new ItemStack(Material.IRON_CHESTPLATE));
-        piglin.getEquipment().setLeggings(new ItemStack(Material.IRON_LEGGINGS));
-        piglin.getEquipment().setBoots(new ItemStack(Material.IRON_BOOTS));
+        // Rest of the code remains unchanged
+        Mob mob = (Mob) world.spawnEntity(spawnLocation, config.getType());
+        mob.setCustomName(config.getName());
+        mob.setCustomNameVisible(false);
+        mob.setPersistent(true);
 
-        // Equip Piglin with a weapon (randomly choose between sword and axe)
-        ItemStack weapon = new ItemStack(new Random().nextBoolean() ? Material.IRON_SWORD : Material.IRON_AXE);
-        piglin.getEquipment().setItemInMainHand(weapon);
+        // Set health
+        if (mob.getAttribute(Attribute.GENERIC_MAX_HEALTH) != null) {
+            mob.getAttribute(Attribute.GENERIC_MAX_HEALTH).setBaseValue(config.getHealth());
+            mob.setHealth(config.getHealth());
+        }
 
-        // Prevent Piglin from dropping items
-        piglin.getEquipment().setHelmetDropChance(0);
-        piglin.getEquipment().setChestplateDropChance(0);
-        piglin.getEquipment().setLeggingsDropChance(0);
-        piglin.getEquipment().setBootsDropChance(0);
-        piglin.getEquipment().setItemInMainHandDropChance(0);
+        // Equip the mob
+        if (mob.getEquipment() != null) {
+            mob.getEquipment().setItemInMainHand(config.getMainHand());
+            ItemStack[] armor = config.getArmor();
+            if (armor != null && armor.length == 4) {
+                mob.getEquipment().setHelmet(armor[0]);
+                mob.getEquipment().setChestplate(armor[1]);
+                mob.getEquipment().setLeggings(armor[2]);
+                mob.getEquipment().setBoots(armor[3]);
+            }
+        }
 
-        mobs.add(piglin); // Add the Piglin to the mobs list
+        // Additional customization for specific mob types
+        if (mob instanceof Hoglin hoglin) {
+            hoglin.setImmuneToZombification(true); // Immune to zombification
+            hoglin.setIsAbleToBeHunted(false); // Cannot be hunted
+            hoglin.setAdult(); // Ensure it's an adult
+        } else if (mob instanceof Piglin piglin) {
+            piglin.setImmuneToZombification(true); // Immune to zombification
+            piglin.setIsAbleToHunt(false); // Disable hunting
+            piglin.setBaby(false); // Not a baby
+            makeHostileToPlayers(piglin); // Custom method to enforce hostility
+        }
+
+        // Handle riders (for mounted mobs)
+        if (config.getRiderConfig() != null && mob instanceof Hoglin hoglin) {
+            CustomMobConfig riderConfig = config.getRiderConfig();
+
+            // Spawn the Piglin rider
+            Piglin rider = (Piglin) world.spawnEntity(hoglin.getLocation().add(0, 1, 0), EntityType.PIGLIN);
+
+            // Customize the Piglin rider
+            rider.setImmuneToZombification(true); // Immune to zombification
+            rider.setBaby(false); // Ensure it's an adult
+            rider.setPersistent(true); // Prevent despawning
+            rider.setCustomName(riderConfig.getName()); // Set custom name
+            rider.setCustomNameVisible(false); // Hide the name
+
+            // Set health
+            if (rider.getAttribute(Attribute.GENERIC_MAX_HEALTH) != null) {
+                rider.getAttribute(Attribute.GENERIC_MAX_HEALTH).setBaseValue(riderConfig.getHealth());
+                rider.setHealth(riderConfig.getHealth());
+            }
+
+            // Equip rider
+            if (rider.getEquipment() != null) {
+                rider.getEquipment().setItemInMainHand(riderConfig.getMainHand());
+                ItemStack[] armor = riderConfig.getArmor();
+                if (armor != null && armor.length == 4) {
+                    rider.getEquipment().setHelmet(armor[0]);
+                    rider.getEquipment().setChestplate(armor[1]);
+                    rider.getEquipment().setLeggings(armor[2]);
+                    rider.getEquipment().setBoots(armor[3]);
+                }
+            }
+
+            // Attach the rider to the Hoglin
+            hoglin.addPassenger(rider);
+        }
+
+        // Add mob to the list
+        mobs.add(mob);
     }
+
+
+
+    private void makeHostileToPlayers(Piglin piglin) {
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (!piglin.isValid()) {
+                    cancel();
+                    return;
+                }
+
+                // Find nearest player
+                Player nearestPlayer = getNearestPlayer(piglin);
+                if (nearestPlayer != null) {
+                    piglin.setTarget(nearestPlayer); // Set the player as the target
+                }
+            }
+        }.runTaskTimer(this, 0L, 20L); // Check every second
+    }
+
+    private Player getNearestPlayer(Piglin piglin) {
+        double detectionRange = 20.0; // Range in blocks within which Piglins detect players
+        Player nearestPlayer = null;
+        double nearestDistance = detectionRange;
+
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (player.getWorld().equals(piglin.getWorld())) {
+                double distance = player.getLocation().distance(piglin.getLocation());
+                if (distance <= nearestDistance) {
+                    nearestPlayer = player;
+                    nearestDistance = distance;
+                }
+            }
+        }
+        return nearestPlayer;
+    }
+
+
+
 
     private void guideMobsToCenter(List<Mob> mobs) {
         for (Mob mob : mobs) {
@@ -522,6 +630,14 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
                 Bukkit.broadcastMessage("A player offensive siege has begun! Capture the stronghold!");
                 siegeActive = true;
                 isOffensiveSiege = true; // Mark as offensive siege
+
+                // Set the weather to rain
+                World world = strongholdCenter.getWorld();
+                if (world != null) {
+                    world.setStorm(true); // Enable rain
+                    world.setWeatherDuration(1200 * 5); // Rain for at least 5 minutes
+                }
+
                 List<Mob> defendingMobs = spawnDefendingMobs();
 
                 // Ensure offensive kill bar is reset
@@ -688,6 +804,7 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         bossMob.getEquipment().setLeggings(new ItemStack(Material.NETHERITE_LEGGINGS));
         bossMob.getEquipment().setBoots(new ItemStack(Material.NETHERITE_BOOTS));
         bossMob.getEquipment().setItemInMainHand(new ItemStack(Material.NETHERITE_AXE));
+        bossMob.getEquipment().setItemInOffHand(new ItemStack(Material.NETHERITE_SWORD)); // Additional sword in off-hand
 
         // Prevent boss from dropping items
         bossMob.getEquipment().setHelmetDropChance(0);
@@ -695,6 +812,7 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         bossMob.getEquipment().setLeggingsDropChance(0);
         bossMob.getEquipment().setBootsDropChance(0);
         bossMob.getEquipment().setItemInMainHandDropChance(0);
+        bossMob.getEquipment().setItemInOffHandDropChance(0); // No drop for the off-hand sword
 
         this.bossMob = bossMob; // Store the reference to the boss mob
 
@@ -720,6 +838,7 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
             }
         }.runTaskTimer(this, 0, 20L);
     }
+
 
     private void endBossFight(List<Mob> defendingMobs) {
         Bukkit.broadcastMessage("§aThe Boss has been defeated! The stronghold is now player-controlled!");
@@ -907,9 +1026,204 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
     }
 
 
+    // Mob Stuff
+    public class CustomMobConfig {
+        private final EntityType type;
+        private final String name;
+        private final double health;
+        private final ItemStack mainHand;
+        private final ItemStack[] armor;
+        private final CustomMobConfig rider;
+        private final int weight; // New field for weighting
+
+        public CustomMobConfig(EntityType type, String name, double health, ItemStack mainHand, ItemStack[] armor, CustomMobConfig rider, int weight) {
+            this.type = type;
+            this.name = name;
+            this.health = health;
+            this.mainHand = mainHand;
+            this.armor = armor;
+            this.rider = rider;
+            this.weight = weight;
+        }
+
+        // Getters
+        public EntityType getType() { return type; }
+        public String getName() { return name; }
+        public double getHealth() { return health; }
+        public ItemStack getMainHand() { return mainHand; }
+        public ItemStack[] getArmor() { return armor; }
+        public CustomMobConfig getRiderConfig() { return rider; }
+        public int getWeight() { return weight; }
+    }
+
+
+
+    private final List<CustomMobConfig> customMobs = new ArrayList<>();
+
+    private void registerCustomMobs() {
+        getLogger().info("Registering custom mobs...");
+
+        // Example 1: Piglin with a sword
+        customMobs.add(new CustomMobConfig(
+                EntityType.PIGLIN,
+                "Piglin Warrior",
+                20.0, // Health
+                new ItemStack(Material.IRON_SWORD), // Weapon
+                new ItemStack[]{ // Armor
+                        new ItemStack(Material.GOLDEN_HELMET),
+                        new ItemStack(Material.GOLDEN_CHESTPLATE),
+                        null, // No leggings
+                        null  // No boots
+                },
+                null, // No rider
+                40 // 30 Weight
+        ));
+
+        // Example 2: Piglin with an axe and red banner as a helmet
+        customMobs.add(new CustomMobConfig(
+                EntityType.PIGLIN,
+                "Piglin Warrior",
+                20.0, // Health
+                new ItemStack(Material.IRON_AXE), // Weapon
+                new ItemStack[]{ // Armor
+                        new ItemStack(Material.GOLDEN_CHESTPLATE),
+                        null, // No leggings
+                        null  // No boots
+                },
+                null, // No rider
+                20 // 20 Weight
+        ));
+
+        // Example 3: Piglin with a crossbow
+        customMobs.add(new CustomMobConfig(
+                EntityType.PIGLIN,
+                "Piglin Archer",
+                20.0, // Health
+                new ItemStack(Material.CROSSBOW), // Weapon
+                new ItemStack[]{ // Armor
+                        new ItemStack(Material.LEATHER_HELMET),
+                        null, // No chestplate
+                        null, // No leggings
+                        new ItemStack(Material.LEATHER_BOOTS) // Leather boots
+                },
+                null, // No rider
+                10 // 30 Weight
+        ));
+
+        // Example 4: Hoglin with a Piglin rider
+        CustomMobConfig piglinRider = new CustomMobConfig(
+                EntityType.PIGLIN,
+                "Piglin Rider",
+                20.0, // Health
+                new ItemStack(Material.IRON_SWORD), // Weapon
+                new ItemStack[]{ // Armor
+                        new ItemStack(Material.GOLDEN_HELMET),
+                        null, // No chestplate
+                        null, // No leggings
+                        null  // No boots
+                },
+                null, // No rider for the rider itself
+                0 // 0 Weight (not used directly)
+        );
+
+        customMobs.add(new CustomMobConfig(
+                EntityType.HOGLIN,
+                "Mounted Hoglin",
+                40.0, // Health
+                null, // No weapon
+                null, // No armor
+                piglinRider, // Rider configuration
+                10 // 20 Weight
+        ));
+
+        customMobs.add(new CustomMobConfig(
+                EntityType.PIGLIN,
+                "Explosive Piglin",
+                15.0, // Health
+                new ItemStack(Material.TNT), // Holds TNT
+                new ItemStack[]{ // Armor
+                        new ItemStack(Material.RED_BANNER), // Red banner as helmet
+                        null, // No chestplate
+                        null, // No leggings
+                        new ItemStack(Material.LEATHER_BOOTS) // Leather boots
+                },
+                null, // No rider
+                5 // Weight (medium probability)
+        ));
+
+        getLogger().info("Custom mobs registered: " + customMobs.size());
+    }
+
+
+
+    private CustomMobConfig getRandomMobConfig() {
+        int totalWeight = customMobs.stream().mapToInt(CustomMobConfig::getWeight).sum();
+        int randomWeight = new Random().nextInt(totalWeight);
+
+        for (CustomMobConfig config : customMobs) {
+            randomWeight -= config.getWeight();
+            if (randomWeight < 0) {
+                return config;
+            }
+        }
+        return customMobs.get(0); // Fallback in case of error
+    }
+
+
+
 
 
     // Passive - ensure no mobs spawn during siege that are not supposed to be there
+    @EventHandler
+    public void onPiglinDamaged(EntityDamageEvent event) {
+        if (event.getEntity() instanceof Piglin piglin) {
+            // Check if the Piglin is the custom "Explosive Piglin"
+            if (piglin.getCustomName() != null && piglin.getCustomName().equals("Explosive Piglin")) {
+                // Cancel the event so the Piglin doesn't die immediately
+                event.setCancelled(true);
+
+                // Blinking effect (5 blinks over 2 seconds)
+                new BukkitRunnable() {
+                    int ticks = 0;
+
+                    @Override
+                    public void run() {
+                        if (ticks >= 40) { // After 2 seconds (40 ticks)
+                            // Trigger explosion
+                            piglin.getWorld().createExplosion(piglin.getLocation(), 4.0F, true, true); // TNT-like explosion
+                            piglin.remove(); // Remove the Piglin after exploding
+                            cancel(); // Stop the task
+                            return;
+                        }
+
+                        // Toggle visibility every 4 ticks
+                        piglin.setInvisible(ticks % 8 < 4);
+                        ticks += 4;
+                    }
+                }.runTaskTimer(this, 0L, 4L); // Runs every 4 ticks (0.2 seconds)
+            }
+        }
+    }
+
+
+
+    @EventHandler
+    public void onPiglinBarter(PiglinBarterEvent event) {
+        Piglin piglin = event.getEntity();
+
+        // Ensure the Piglin is part of the custom mobs
+        if (isCustomPiglin(piglin)) {
+            event.setCancelled(true); // Cancel the bartering event
+        }
+    }
+
+    // Utility method to check if a Piglin is part of the custom mobs
+    private boolean isCustomPiglin(Piglin piglin) {
+        return customMobs.stream()
+                .anyMatch(config -> config.getType() == EntityType.PIGLIN && piglin.getCustomName() != null &&
+                        piglin.getCustomName().equals(config.getName()));
+    }
+
     @EventHandler
     public void onCreatureSpawn(CreatureSpawnEvent event) {
         // Cancel all hostile mob spawns unless they are custom spawns by your plugin
@@ -926,5 +1240,3 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         };
     }
 }
-
-
