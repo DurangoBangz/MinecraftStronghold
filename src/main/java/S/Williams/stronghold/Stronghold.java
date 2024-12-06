@@ -630,7 +630,7 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
                 Bukkit.broadcastMessage("A player offensive siege has begun! Capture the stronghold!");
                 siegeActive = true;
                 isOffensiveSiege = true; // Mark as offensive siege
-
+                startPlayerDetectionTask(); // Start player detection task here
                 // Set the weather to rain
                 World world = strongholdCenter.getWorld();
                 if (world != null) {
@@ -756,13 +756,14 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
     }
     private int totalKills = 0; // Track total kills across all players
     private final int requiredKills = 5; // Number of mobs players need to kill
+
     private void checkPlayerCaptureCondition(List<Mob> defendingMobs) {
         if (totalKills >= requiredKills) {
             spawnBossMob(defendingMobs); // Spawn the final boss mob
             totalKills = 0; // Reset the kill counter for the next phase
 
             removeOffensiveKillBar(); // Remove the kill bar when the boss spawns
-        } else if (!bossSpawned) { // Only update if the boss hasn't spawned
+        } else if (!bossSpawned && !bossfightstarted) { // Only update if the boss hasn't spawned
             updateOffensiveKillBar(totalKills, requiredKills);
         }
     }
@@ -772,7 +773,7 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         if (!siegeActive || !isOffensiveSiege) return; // Only run during active offensive siege
 
         if (event.getEntity().getKiller() != null && event.getEntity() instanceof Mob) { // Ensure a player killed the mob
-            if (!bossSpawned) { // Only increment and update if the boss hasn't spawned
+            if (!bossSpawned && !bossfightstarted) { // Only increment and update if the boss hasn't spawned
                 totalKills++; // Increment global kill counter
                 updateOffensiveKillBar(totalKills, requiredKills); // Update the BossBar
             }
@@ -781,30 +782,45 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
     private BossBar bossBar; // Global variable to track the boss bar
     private boolean bossSpawned = false; // Track if the boss has been spawned
     private Mob bossMob; // Generalize to Mob to support Piglin Brute or other entities
+    private double savedBossHealth = -1; // To save the boss's health
+    private boolean bossRemovedDueToNoPlayers = false; // Track if the boss was removed
+
+
+
+
+
+    //////////////////////
+    private boolean bossfightstarted = false;
     private void spawnBossMob(List<Mob> defendingMobs) {
         if (bossSpawned) return; // Prevent multiple boss spawns
         bossSpawned = true; // Mark boss as spawned
-
+        bossfightstarted = true;
         World world = strongholdCenter.getWorld();
         Location spawnLocation = strongholdCenter.clone().add(0, 2, 0);
 
-        // Spawn the Piglin Brute
         PiglinBrute bossMob = (PiglinBrute) world.spawnEntity(spawnLocation, EntityType.PIGLIN_BRUTE);
         bossMob.setImmuneToZombification(true); // Make Piglin Brute immune to zombification
         bossMob.setPersistent(true); // Prevent despawning
         bossMob.setCustomName("§cBoss Piglin Brute");
         bossMob.setCustomNameVisible(true);
         bossMob.getAttribute(Attribute.GENERIC_MAX_HEALTH).setBaseValue(100.0);
-        bossMob.setHealth(100.0);
+        bossMob.setHealth(savedBossHealth > 0 ? savedBossHealth : 100.0); // Restore saved health or full health
         bossMob.getAttribute(Attribute.GENERIC_ATTACK_DAMAGE).setBaseValue(15.0); // Stronger attack
 
-        // Equip boss with Netherite armor
+        // Equip boss with Netherite armor (same as before)
         bossMob.getEquipment().setHelmet(new ItemStack(Material.NETHERITE_HELMET));
         bossMob.getEquipment().setChestplate(new ItemStack(Material.NETHERITE_CHESTPLATE));
         bossMob.getEquipment().setLeggings(new ItemStack(Material.NETHERITE_LEGGINGS));
         bossMob.getEquipment().setBoots(new ItemStack(Material.NETHERITE_BOOTS));
         bossMob.getEquipment().setItemInMainHand(new ItemStack(Material.NETHERITE_AXE));
-        bossMob.getEquipment().setItemInOffHand(new ItemStack(Material.NETHERITE_SWORD)); // Additional sword in off-hand
+        bossMob.getEquipment().setItemInOffHand(new ItemStack(Material.NETHERITE_SWORD));
+
+        bossMob.getEquipment().setHelmetDropChance(0);
+        bossMob.getEquipment().setChestplateDropChance(0);
+        bossMob.getEquipment().setLeggingsDropChance(0);
+        bossMob.getEquipment().setBootsDropChance(0);
+        bossMob.getEquipment().setItemInMainHandDropChance(0);
+        bossMob.getEquipment().setItemInOffHandDropChance(0);
 
         // Prevent boss from dropping items
         bossMob.getEquipment().setHelmetDropChance(0);
@@ -814,35 +830,78 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         bossMob.getEquipment().setItemInMainHandDropChance(0);
         bossMob.getEquipment().setItemInOffHandDropChance(0); // No drop for the off-hand sword
 
-        this.bossMob = bossMob; // Store the reference to the boss mob
 
-        // Create BossBar for the boss
+        this.bossMob = bossMob; // Save boss reference
+        startPlayerDetectionTask();
+
+        // Create and track the BossBar
         bossBar = Bukkit.createBossBar("§cBoss Piglin Brute", BarColor.RED, BarStyle.SEGMENTED_10);
-        bossBar.setProgress(1.0);
+        bossBar.setProgress(bossMob.getHealth() / bossMob.getAttribute(Attribute.GENERIC_MAX_HEALTH).getValue());
         for (Player player : Bukkit.getOnlinePlayers()) {
             bossBar.addPlayer(player);
         }
 
-        // Update BossBar progress
+        // Start a task to track boss health
         new BukkitRunnable() {
             @Override
             public void run() {
-                if (!bossMob.isValid()) {
-                    cancel();
+                if (!bossMob.isValid() || !siegeActive || bossRemovedDueToNoPlayers) {
+                    cancel(); // Stop if boss is removed or siege ends
                     bossBar.removeAll();
                     endBossFight(defendingMobs);
                     return;
                 }
-                double progress = bossMob.getHealth() / bossMob.getAttribute(Attribute.GENERIC_MAX_HEALTH).getValue();
-                bossBar.setProgress(progress);
+                double health = bossMob.getHealth();
+                bossBar.setProgress(health / bossMob.getAttribute(Attribute.GENERIC_MAX_HEALTH).getValue());
             }
-        }.runTaskTimer(this, 0, 20L);
+        }.runTaskTimer(this, 0, 20L); // Update health every second
     }
+
+
+    private void startPlayerDetectionTask() {
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (!siegeActive) {
+                    cancel(); // Stop task if siege is not active
+                    return;
+                }
+
+                boolean playersNearby = isPlayerNearby();
+
+                if (!playersNearby && bossSpawned) {
+                    // Save boss state and remove boss
+                    savedBossHealth = bossMob != null && bossMob.isValid() ? bossMob.getHealth() : savedBossHealth;
+                    removeBossMob();
+                    bossRemovedDueToNoPlayers = true;
+                    Bukkit.broadcastMessage("§cThe boss has retreated due to no players being nearby!");
+                } else if (playersNearby && bossRemovedDueToNoPlayers) {
+                    // Respawn boss if players return
+                    spawnBossMob(null);
+                    bossRemovedDueToNoPlayers = false;
+                    Bukkit.broadcastMessage("§aThe boss has returned to the battle!");
+                }
+            }
+        }.runTaskTimer(this, 0, 40L); // Check every 2 seconds (40 ticks)
+    }
+
+    private boolean isPlayerNearby() {
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (player.getWorld().equals(strongholdCenter.getWorld()) &&
+                    player.getLocation().distance(strongholdCenter) <= RADIUS) {
+                return true; // Found a player nearby
+            }
+        }
+        return false;
+    }
+
+    //////////////////////
 
 
     private void endBossFight(List<Mob> defendingMobs) {
         Bukkit.broadcastMessage("§aThe Boss has been defeated! The stronghold is now player-controlled!");
         removeBossMob(); // Ensure the boss is removed
+        bossfightstarted = false;
         siegeActive = false;
         endSiege(defendingMobs, true, false);
         if (siegeTimer != null) {
@@ -882,8 +941,11 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         if (bossSpawned) {
             removeBossMob();
         }
+        bossfightstarted = false;
         removeTNTCannons(); // cleanup tnt cannons
         removeOffensiveKillBar(); // Ensure the offensive kill bar is cleared
+        bossRemovedDueToNoPlayers = false; // Reset boss removal flag
+        savedBossHealth = -1; // Clear saved health
 
         // Determine ownership based on siege outcome
         isPlayerControlled = playersWon;
