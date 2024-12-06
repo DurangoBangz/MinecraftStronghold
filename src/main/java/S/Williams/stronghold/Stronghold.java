@@ -10,9 +10,7 @@ import org.bukkit.World;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.CommandExecutor;
-import org.bukkit.entity.EntityType;
-import org.bukkit.entity.Mob;
-import org.bukkit.entity.Player;
+import org.bukkit.entity.*;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.CreatureSpawnEvent;
@@ -29,7 +27,6 @@ import org.bukkit.boss.BarStyle;
 import org.bukkit.attribute.Attribute;
 import net.md_5.bungee.api.chat.TextComponent;
 import net.md_5.bungee.api.ChatMessageType;
-import org.bukkit.entity.Firework;
 import org.bukkit.inventory.meta.FireworkMeta;
 import org.bukkit.FireworkEffect;
 import org.bukkit.Color;
@@ -37,16 +34,15 @@ import org.bukkit.block.BlockFace; // Ensure this is imported
 import org.bukkit.block.data.Directional; // Import the Directional interface
 import java.util.Map;
 import java.util.HashMap;
-import org.bukkit.entity.Piglin;
-import org.bukkit.entity.PiglinBrute;
-import org.bukkit.entity.TNTPrimed;
 import org.bukkit.util.Vector;
-import org.bukkit.entity.Hoglin;
-import org.bukkit.event.entity.PiglinBarterEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
-
+import org. bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.metadata.FixedMetadataValue;
+import org.bukkit.event.entity.EntityTargetLivingEntityEvent;
 
 public class Stronghold extends JavaPlugin implements Listener, CommandExecutor {
+
+    //definitions
 
     private Location strongholdCenter;
     private boolean isPlayerControlled = true; // Indicates stronghold ownership
@@ -58,131 +54,8 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
     private List<Location> bannerLocations = new ArrayList<>(); // To track banner locations
     private final Map<Location, Material> originalTerrain = new HashMap<>();
 
-    // banner stuff
 
-    private void placeBanners(Location center) {
-        World world = center.getWorld();
-        int radius = RINGS[RINGS.length - 1]; // Outer ring radius
-
-        // Clear any existing banners
-        for (Location bannerLoc : bannerLocations) {
-            if (bannerLoc.getBlock().getType() == BANNER_MATERIAL) {
-                bannerLoc.getBlock().setType(Material.AIR);
-            }
-        }
-        bannerLocations.clear();
-
-        // Place banners at intervals
-        for (int degree = 0; degree < 360; degree += BANNER_SPACING) {
-            double radians = Math.toRadians(degree);
-            double x = center.getX() + (radius + 3) * Math.cos(radians); // Move outward by 3 blocks
-            double z = center.getZ() + (radius + 3) * Math.sin(radians); // Move outward by 3 blocks
-            Location bannerLoc = new Location(world, x, center.getY() + 1, z); // Move up by 1 block
-
-            // Place the banner
-            bannerLoc.getBlock().setType(BANNER_MATERIAL);
-
-            // Set the banner's facing direction
-            if (bannerLoc.getBlock().getBlockData() instanceof Directional directional) {
-                directional.setFacing(getBannerFacing(center, bannerLoc));
-                bannerLoc.getBlock().setBlockData(directional);
-            }
-
-            bannerLocations.add(bannerLoc);
-        }
-    }
-
-    // Helper method to determine the banner's facing direction
-    private BlockFace getBannerFacing(Location center, Location bannerLoc) {
-        double dx = bannerLoc.getX() - center.getX();
-        double dz = bannerLoc.getZ() - center.getZ();
-        double angle = Math.toDegrees(Math.atan2(dz, dx));
-
-        // Convert angle to 0-360 degrees
-        angle = (angle + 360) % 360;
-
-        // Determine the closest BlockFace
-        if (angle >= 45 && angle < 135) return BlockFace.SOUTH;
-        if (angle >= 135 && angle < 225) return BlockFace.WEST;
-        if (angle >= 225 && angle < 315) return BlockFace.NORTH;
-        return BlockFace.EAST;
-    }
-
-
-
-    // Update banner colors based on ownership
-    private void updateBannerColors(boolean isPlayerOwned) {
-        Material newBannerMaterial = isPlayerOwned ? Material.BLUE_BANNER : Material.RED_BANNER;
-
-        for (Location bannerLoc : bannerLocations) {
-            // Replace the banner with the new material
-            if (bannerLoc.getBlock().getType() == Material.BLUE_BANNER || bannerLoc.getBlock().getType() == Material.RED_BANNER) {
-                bannerLoc.getBlock().setType(newBannerMaterial);
-
-                // Set the banner's facing direction (preserve orientation)
-                if (bannerLoc.getBlock().getBlockData() instanceof Directional directional) {
-                    directional.setFacing(getBannerFacing(strongholdCenter, bannerLoc));
-                    bannerLoc.getBlock().setBlockData(directional);
-                }
-            }
-        }
-    }
-
-
-
-    // Fireworks effect on player victory
-    private void launchFireworks(Location center) {
-        World world = center.getWorld();
-        int radius = RINGS[RINGS.length - 1]; // Outer ring radius
-
-        // Schedule repeating fireworks
-        new BukkitRunnable() {
-            int fireworksCount = 0; // Counter for the number of fireworks launched
-
-            @Override
-            public void run() {
-                if (fireworksCount >= 20) { // Stop after 20 fireworks
-                    cancel();
-                    return;
-                }
-
-                // Launch a firework at a random position around the stronghold
-                double angle = Math.toRadians(new Random().nextInt(360));
-                double x = center.getX() + (radius + 3) * Math.cos(angle); // Add 3 to radius for fireworks outside
-                double z = center.getZ() + (radius + 3) * Math.sin(angle);
-                Location fireworkLoc = new Location(world, x, center.getY() + 2, z);
-
-                Firework firework = world.spawn(fireworkLoc, Firework.class);
-                FireworkMeta fireworkMeta = firework.getFireworkMeta();
-
-                // Create random firework effects
-                fireworkMeta.addEffect(FireworkEffect.builder()
-                        .with(FireworkEffect.Type.values()[new Random().nextInt(FireworkEffect.Type.values().length)]) // Random firework type
-                        .withColor(getRandomColors())
-                        .withFade(getRandomColors())
-                        .withTrail()
-                        .withFlicker()
-                        .build());
-                fireworkMeta.setPower(1 + new Random().nextInt(2)); // Random power between 1 and 2
-                firework.setFireworkMeta(fireworkMeta);
-
-                fireworksCount++;
-            }
-        }.runTaskTimer(this, 0, 10L); // Launch fireworks every 10 ticks (0.5 seconds)
-    }
-
-    // Helper method to generate random firework colors
-    private List<Color> getRandomColors() {
-        List<Color> colors = new ArrayList<>();
-        Random random = new Random();
-        for (int i = 0; i < 3; i++) { // Add up to 3 random colors
-            colors.add(Color.fromRGB(random.nextInt(256), random.nextInt(256), random.nextInt(256)));
-        }
-        return colors;
-    }
-
-
-    // start and close of plugin
+    //////// start and close of plugin
     @Override
     public void onEnable() {
         getLogger().info("StrongHold has started!");
@@ -243,7 +116,129 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
     }
 
 
-    // initialize one stronghold
+
+    //////// banner stuff and fireworks
+    private void placeBanners(Location center) {
+        World world = center.getWorld();
+        int radius = RINGS[RINGS.length - 1]; // Outer ring radius
+
+        // Clear any existing banners
+        for (Location bannerLoc : bannerLocations) {
+            if (bannerLoc.getBlock().getType() == BANNER_MATERIAL) {
+                bannerLoc.getBlock().setType(Material.AIR);
+            }
+        }
+        bannerLocations.clear();
+
+        // Place banners at intervals
+        for (int degree = 0; degree < 360; degree += BANNER_SPACING) {
+            double radians = Math.toRadians(degree);
+            double x = center.getX() + (radius + 3) * Math.cos(radians); // Move outward by 3 blocks
+            double z = center.getZ() + (radius + 3) * Math.sin(radians); // Move outward by 3 blocks
+            Location bannerLoc = new Location(world, x, center.getY() + 1, z); // Move up by 1 block
+
+            // Place the banner
+            bannerLoc.getBlock().setType(BANNER_MATERIAL);
+
+            // Set the banner's facing direction
+            if (bannerLoc.getBlock().getBlockData() instanceof Directional directional) {
+                directional.setFacing(getBannerFacing(center, bannerLoc));
+                bannerLoc.getBlock().setBlockData(directional);
+            }
+
+            bannerLocations.add(bannerLoc);
+        }
+    }
+
+    // Helper method to determine the banner's facing direction
+    private BlockFace getBannerFacing(Location center, Location bannerLoc) {
+        double dx = bannerLoc.getX() - center.getX();
+        double dz = bannerLoc.getZ() - center.getZ();
+        double angle = Math.toDegrees(Math.atan2(dz, dx));
+
+        // Convert angle to 0-360 degrees
+        angle = (angle + 360) % 360;
+
+        // Determine the closest BlockFace
+        if (angle >= 45 && angle < 135) return BlockFace.SOUTH;
+        if (angle >= 135 && angle < 225) return BlockFace.WEST;
+        if (angle >= 225 && angle < 315) return BlockFace.NORTH;
+        return BlockFace.EAST;
+    }
+
+    // Update banner colors based on ownership
+    private void updateBannerColors(boolean isPlayerOwned) {
+        Material newBannerMaterial = isPlayerOwned ? Material.BLUE_BANNER : Material.RED_BANNER;
+
+        for (Location bannerLoc : bannerLocations) {
+            // Replace the banner with the new material
+            if (bannerLoc.getBlock().getType() == Material.BLUE_BANNER || bannerLoc.getBlock().getType() == Material.RED_BANNER) {
+                bannerLoc.getBlock().setType(newBannerMaterial);
+
+                // Set the banner's facing direction (preserve orientation)
+                if (bannerLoc.getBlock().getBlockData() instanceof Directional directional) {
+                    directional.setFacing(getBannerFacing(strongholdCenter, bannerLoc));
+                    bannerLoc.getBlock().setBlockData(directional);
+                }
+            }
+        }
+    }
+
+    // Fireworks effect on player victory
+    private void launchFireworks(Location center) {
+        World world = center.getWorld();
+        int radius = RINGS[RINGS.length - 1]; // Outer ring radius
+
+        // Schedule repeating fireworks
+        new BukkitRunnable() {
+            int fireworksCount = 0; // Counter for the number of fireworks launched
+
+            @Override
+            public void run() {
+                if (fireworksCount >= 20) { // Stop after 20 fireworks
+                    cancel();
+                    return;
+                }
+
+                // Launch a firework at a random position around the stronghold
+                double angle = Math.toRadians(new Random().nextInt(360));
+                double x = center.getX() + (radius + 3) * Math.cos(angle); // Add 3 to radius for fireworks outside
+                double z = center.getZ() + (radius + 3) * Math.sin(angle);
+                Location fireworkLoc = new Location(world, x, center.getY() + 2, z);
+
+                Firework firework = world.spawn(fireworkLoc, Firework.class);
+                FireworkMeta fireworkMeta = firework.getFireworkMeta();
+
+                // Create random firework effects
+                fireworkMeta.addEffect(FireworkEffect.builder()
+                        .with(FireworkEffect.Type.values()[new Random().nextInt(FireworkEffect.Type.values().length)]) // Random firework type
+                        .withColor(getRandomColors())
+                        .withFade(getRandomColors())
+                        .withTrail()
+                        .withFlicker()
+                        .build());
+                fireworkMeta.setPower(1 + new Random().nextInt(2)); // Random power between 1 and 2
+                firework.setFireworkMeta(fireworkMeta);
+
+                fireworksCount++;
+            }
+        }.runTaskTimer(this, 0, 10L); // Launch fireworks every 10 ticks (0.5 seconds)
+    }
+
+    // Helper method to generate random firework colors
+    private List<Color> getRandomColors() {
+        List<Color> colors = new ArrayList<>();
+        Random random = new Random();
+        for (int i = 0; i < 3; i++) { // Add up to 3 random colors
+            colors.add(Color.fromRGB(random.nextInt(256), random.nextInt(256), random.nextInt(256)));
+        }
+        return colors;
+    }
+
+
+
+
+    //////// stronghold build
     private void createControlRings(Location center) {
         World world = center.getWorld();
         Material[] ringMaterials = {
@@ -270,6 +265,7 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
             }
         }
     }
+
     private void flattenTerrain(Location center) {
         World world = center.getWorld();
         int centerX = center.getBlockX();
@@ -318,8 +314,8 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
     }
 
 
-
-    // Time delay before mob siege
+    //////MobAttack
+    // Time delay before mob attack
     private void startSiegeAfterDelay() {
         new BukkitRunnable() {
             @Override
@@ -464,19 +460,20 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
             piglin.setImmuneToZombification(true); // Immune to zombification
             piglin.setIsAbleToHunt(false); // Disable hunting
             piglin.setBaby(false); // Not a baby
-            makeHostileToPlayers(piglin); // Custom method to enforce hostility
+        } else if (mob instanceof PiglinBrute piglinBrute) {
+            piglinBrute.setImmuneToZombification(true); // Immune to zombification
+            // Piglin Brutes are always adults and cannot hunt, so no additional settings for these are necessary.
         }
 
         // Handle riders (for mounted mobs)
         if (config.getRiderConfig() != null && mob instanceof Hoglin hoglin) {
             CustomMobConfig riderConfig = config.getRiderConfig();
 
-            // Spawn the Piglin rider
-            Piglin rider = (Piglin) world.spawnEntity(hoglin.getLocation().add(0, 1, 0), EntityType.PIGLIN);
+            // Spawn the Piglin Brute rider
+            PiglinBrute rider = (PiglinBrute) world.spawnEntity(hoglin.getLocation().add(0, 1, 0), EntityType.PIGLIN_BRUTE);
 
-            // Customize the Piglin rider
+            // Customize the Piglin Brute rider
             rider.setImmuneToZombification(true); // Immune to zombification
-            rider.setBaby(false); // Ensure it's an adult
             rider.setPersistent(true); // Prevent despawning
             rider.setCustomName(riderConfig.getName()); // Set custom name
             rider.setCustomNameVisible(false); // Hide the name
@@ -503,29 +500,11 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
             hoglin.addPassenger(rider);
         }
 
+
         // Add mob to the list
         mobs.add(mob);
     }
 
-
-
-    private void makeHostileToPlayers(Piglin piglin) {
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                if (!piglin.isValid()) {
-                    cancel();
-                    return;
-                }
-
-                // Find nearest player
-                Player nearestPlayer = getNearestPlayer(piglin);
-                if (nearestPlayer != null) {
-                    piglin.setTarget(nearestPlayer); // Set the player as the target
-                }
-            }
-        }.runTaskTimer(this, 0L, 20L); // Check every second
-    }
 
     private Player getNearestPlayer(Piglin piglin) {
         double detectionRange = 20.0; // Range in blocks within which Piglins detect players
@@ -543,10 +522,6 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         }
         return nearestPlayer;
     }
-
-
-
-
     private void guideMobsToCenter(List<Mob> mobs) {
         for (Mob mob : mobs) {
             if (mob == null || !mob.isValid()) continue;
@@ -621,7 +596,7 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
     private BossBar defensiveCircleBar; // For defensive siege (mobs in circle)
 
 
-
+    ////// Player attack
     // Time delay before player siege
     private void startPlayerOffensiveSiege() {
         new BukkitRunnable() {
@@ -650,7 +625,6 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         }.runTaskLater(this, 1200L); // Delay of 1 minute (1200 ticks)
     }
 
-
     // new stuff
     private BossBar offensiveKillBar; // For offensive siege (mobs killed)
     private void updateOffensiveKillBar(int totalKills, int requiredKills) {
@@ -669,7 +643,6 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
             offensiveKillBar = null; // Nullify the reference
         }
     }
-
     private void updateTimeRemainingActionBar(int timeLeft) {
         String timeFormatted = String.format("%02d:%02d", timeLeft / 60, timeLeft % 60);
         for (Player player : Bukkit.getOnlinePlayers()) {
@@ -687,8 +660,6 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         defensiveCircleBar.setProgress(Math.min(1.0, (double) mobsInRadius / requiredMobs));
     }
     private boolean isOffensiveSiege = false; // Track if the current siege is offensive
-
-    // Player Siege
     private void startPlayerSiegeTimer(List<Mob> defendingMobs) {
         siegeTimer = new BukkitRunnable() {
             int timeLeft = 120; // 120 seconds for the offensive siege
@@ -756,7 +727,6 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
     }
     private int totalKills = 0; // Track total kills across all players
     private final int requiredKills = 5; // Number of mobs players need to kill
-
     private void checkPlayerCaptureCondition(List<Mob> defendingMobs) {
         if (totalKills >= requiredKills) {
             spawnBossMob(defendingMobs); // Spawn the final boss mob
@@ -768,28 +738,12 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         }
     }
 
-    @EventHandler
-    public void onEntityDeath(EntityDeathEvent event) {
-        if (!siegeActive || !isOffensiveSiege) return; // Only run during active offensive siege
-
-        if (event.getEntity().getKiller() != null && event.getEntity() instanceof Mob) { // Ensure a player killed the mob
-            if (!bossSpawned && !bossfightstarted) { // Only increment and update if the boss hasn't spawned
-                totalKills++; // Increment global kill counter
-                updateOffensiveKillBar(totalKills, requiredKills); // Update the BossBar
-            }
-        }
-    }
+   //bossfight
     private BossBar bossBar; // Global variable to track the boss bar
     private boolean bossSpawned = false; // Track if the boss has been spawned
     private Mob bossMob; // Generalize to Mob to support Piglin Brute or other entities
     private double savedBossHealth = -1; // To save the boss's health
     private boolean bossRemovedDueToNoPlayers = false; // Track if the boss was removed
-
-
-
-
-
-    //////////////////////
     private boolean bossfightstarted = false;
     private void spawnBossMob(List<Mob> defendingMobs) {
         if (bossSpawned) return; // Prevent multiple boss spawns
@@ -856,8 +810,6 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
             }
         }.runTaskTimer(this, 0, 20L); // Update health every second
     }
-
-
     private void startPlayerDetectionTask() {
         new BukkitRunnable() {
             @Override
@@ -884,7 +836,6 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
             }
         }.runTaskTimer(this, 0, 40L); // Check every 2 seconds (40 ticks)
     }
-
     private boolean isPlayerNearby() {
         for (Player player : Bukkit.getOnlinePlayers()) {
             if (player.getWorld().equals(strongholdCenter.getWorld()) &&
@@ -894,10 +845,6 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         }
         return false;
     }
-
-    //////////////////////
-
-
     private void endBossFight(List<Mob> defendingMobs) {
         Bukkit.broadcastMessage("§aThe Boss has been defeated! The stronghold is now player-controlled!");
         removeBossMob(); // Ensure the boss is removed
@@ -908,7 +855,19 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
             siegeTimer.cancel();
         }
     }
+    private void removeBossMob() {
+        if (bossMob != null && bossMob.isValid()) {
+            bossMob.remove(); // Remove the boss mob from the world
+        }
+        bossMob = null; // Clear the reference
+        bossSpawned = false; // Reset the spawn flag
 
+        // Remove the boss bar if it exists
+        if (bossBar != null) {
+            bossBar.removeAll();
+            bossBar = null;
+        }
+    }
 
 
     // Set Beacon color
@@ -935,7 +894,6 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
             glassLocation.getBlock().setType(Material.RED_STAINED_GLASS); // Red for mob-controlled
         }
     }
-
     //end sieges
     private void endSiege(List<Mob> mobs, boolean playersWon, boolean isDefensive) {
         if (bossSpawned) {
@@ -975,22 +933,6 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         }
     }
 
-
-
-    private void removeBossMob() {
-        if (bossMob != null && bossMob.isValid()) {
-            bossMob.remove(); // Remove the boss mob from the world
-        }
-        bossMob = null; // Clear the reference
-        bossSpawned = false; // Reset the spawn flag
-
-        // Remove the boss bar if it exists
-        if (bossBar != null) {
-            bossBar.removeAll();
-            bossBar = null;
-        }
-    }
-
     private void resetStronghold() {
         if (strongholdCenter != null) {
             // Reset terrain
@@ -1017,7 +959,7 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
 
 
 
-    // Siege Mechanics Section
+    // Siege features Section
     private final List<Location> cannonLocations = new ArrayList<>(); // Store TNT cannon locations
 
     private void spawnTNTCannons(Location center) {
@@ -1077,8 +1019,6 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         }.runTaskTimer(this, 0L, 600L); // 30 seconds (600 ticks) between shots
     }
 
-
-
     private void removeTNTCannons() {
         // Remove all cannon blocks and clear the list
         for (Location cannonLoc : cannonLocations) {
@@ -1088,7 +1028,7 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
     }
 
 
-    // Mob Stuff
+    //// Custom Mob Stuff
     public class CustomMobConfig {
         private final EntityType type;
         private final String name;
@@ -1118,8 +1058,6 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         public int getWeight() { return weight; }
     }
 
-
-
     private final List<CustomMobConfig> customMobs = new ArrayList<>();
 
     private void registerCustomMobs() {
@@ -1127,7 +1065,7 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
 
         // Example 1: Piglin with a sword
         customMobs.add(new CustomMobConfig(
-                EntityType.PIGLIN,
+                EntityType.PIGLIN_BRUTE,
                 "Piglin Warrior",
                 20.0, // Health
                 new ItemStack(Material.IRON_SWORD), // Weapon
@@ -1141,9 +1079,9 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
                 40 // 30 Weight
         ));
 
-        // Example 2: Piglin with an axe and red banner as a helmet
+        // Example 2: Piglin with an axe
         customMobs.add(new CustomMobConfig(
-                EntityType.PIGLIN,
+                EntityType.PIGLIN_BRUTE,
                 "Piglin Warrior",
                 20.0, // Health
                 new ItemStack(Material.IRON_AXE), // Weapon
@@ -1174,7 +1112,7 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
 
         // Example 4: Hoglin with a Piglin rider
         CustomMobConfig piglinRider = new CustomMobConfig(
-                EntityType.PIGLIN,
+                EntityType.PIGLIN_BRUTE,
                 "Piglin Rider",
                 20.0, // Health
                 new ItemStack(Material.IRON_SWORD), // Weapon
@@ -1199,7 +1137,7 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         ));
 
         customMobs.add(new CustomMobConfig(
-                EntityType.PIGLIN,
+                EntityType.PIGLIN_BRUTE,
                 "Explosive Piglin",
                 15.0, // Health
                 new ItemStack(Material.TNT), // Holds TNT
@@ -1216,8 +1154,6 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         getLogger().info("Custom mobs registered: " + customMobs.size());
     }
 
-
-
     private CustomMobConfig getRandomMobConfig() {
         int totalWeight = customMobs.stream().mapToInt(CustomMobConfig::getWeight).sum();
         int randomWeight = new Random().nextInt(totalWeight);
@@ -1231,53 +1167,69 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
         return customMobs.get(0); // Fallback in case of error
     }
 
+    /////make all piglins hostile
 
 
 
+    ////// Passive - ensure no mobs spawn during siege that are not supposed to be there
 
-    // Passive - ensure no mobs spawn during siege that are not supposed to be there
+    // check for boss death
     @EventHandler
-    public void onPiglinDamaged(EntityDamageEvent event) {
-        if (event.getEntity() instanceof Piglin piglin) {
-            // Check if the Piglin is the custom "Explosive Piglin"
-            if (piglin.getCustomName() != null && piglin.getCustomName().equals("Explosive Piglin")) {
-                // Cancel the event so the Piglin doesn't die immediately
-                event.setCancelled(true);
+    public void onEntityDeath(EntityDeathEvent event) {
+        if (!siegeActive || !isOffensiveSiege) return; // Only run during active offensive siege
 
-                // Blinking effect (5 blinks over 2 seconds)
-                new BukkitRunnable() {
-                    int ticks = 0;
-
-                    @Override
-                    public void run() {
-                        if (ticks >= 40) { // After 2 seconds (40 ticks)
-                            // Trigger explosion
-                            piglin.getWorld().createExplosion(piglin.getLocation(), 4.0F, true, true); // TNT-like explosion
-                            piglin.remove(); // Remove the Piglin after exploding
-                            cancel(); // Stop the task
-                            return;
-                        }
-
-                        // Toggle visibility every 4 ticks
-                        piglin.setInvisible(ticks % 8 < 4);
-                        ticks += 4;
-                    }
-                }.runTaskTimer(this, 0L, 4L); // Runs every 4 ticks (0.2 seconds)
+        if (event.getEntity().getKiller() != null && event.getEntity() instanceof Mob) { // Ensure a player killed the mob
+            if (!bossSpawned && !bossfightstarted) { // Only increment and update if the boss hasn't spawned
+                totalKills++; // Increment global kill counter
+                updateOffensiveKillBar(totalKills, requiredKills); // Update the BossBar
             }
         }
     }
 
-
-
+    // Blow up explosive Piglin Brutes
     @EventHandler
-    public void onPiglinBarter(PiglinBarterEvent event) {
-        Piglin piglin = event.getEntity();
+    public void onPiglinBruteDamaged(EntityDamageEvent event) {
+        if (event.getEntity() instanceof PiglinBrute piglinBrute) {
+            // Check if the Piglin Brute is the custom "Explosive Piglin Brute"
+            if (piglinBrute.getCustomName() != null && piglinBrute.getCustomName().equals("Explosive Piglin")) {
+                // Cancel the event so the Piglin Brute doesn't die immediately
+                event.setCancelled(true);
 
-        // Ensure the Piglin is part of the custom mobs
-        if (isCustomPiglin(piglin)) {
-            event.setCancelled(true); // Cancel the bartering event
+                // Check or initialize the damage counter using metadata
+                int damageCount = piglinBrute.hasMetadata("damageCount")
+                        ? piglinBrute.getMetadata("damageCount").get(0).asInt()
+                        : 0;
+
+                // Increment the damage counter
+                damageCount++;
+
+                // Update the metadata
+                piglinBrute.setMetadata("damageCount", new FixedMetadataValue(this, damageCount));
+
+                if (damageCount >= 2) { // Check if the Piglin Brute has been damaged twice
+                    // Trigger explosion
+                    new BukkitRunnable() {
+                        int ticks = 0;
+
+                        @Override
+                        public void run() {
+                            if (ticks >= 40) { // After 2 seconds (40 ticks)
+                                piglinBrute.getWorld().createExplosion(piglinBrute.getLocation(), 4.0F, true, true); // TNT-like explosion
+                                piglinBrute.remove(); // Remove the Piglin Brute after exploding
+                                cancel(); // Stop the task
+                                return;
+                            }
+
+                            // Toggle visibility every 4 ticks
+                            piglinBrute.setInvisible(ticks % 8 < 4);
+                            ticks += 4;
+                        }
+                    }.runTaskTimer(this, 0L, 4L); // Runs every 4 ticks (0.2 seconds)
+                }
+            }
         }
     }
+
 
     // Utility method to check if a Piglin is part of the custom mobs
     private boolean isCustomPiglin(Piglin piglin) {
@@ -1285,10 +1237,57 @@ public class Stronghold extends JavaPlugin implements Listener, CommandExecutor 
                 .anyMatch(config -> config.getType() == EntityType.PIGLIN && piglin.getCustomName() != null &&
                         piglin.getCustomName().equals(config.getName()));
     }
+    private boolean isCustomPiglinBrute(PiglinBrute piglinBrute) {
+        return customMobs.stream()
+                .anyMatch(config -> config.getType() == EntityType.PIGLIN_BRUTE && piglinBrute.getCustomName() != null &&
+                        piglinBrute.getCustomName().equals(config.getName()));
+    }
+
+    // Keep Iron golems passive at all times towards players
+    @EventHandler
+    public void onGolemDamagedByPlayer(EntityDamageByEntityEvent event) {
+        // Check if the entity being damaged is an Iron Golem
+        if (event.getEntity() instanceof IronGolem golem) {
+            // Check if the damager is a player
+            if (event.getDamager() instanceof Player) {
+                // Cancel the damage event to prevent retaliation
+                event.setCancelled(true);
+
+                // Check if the current target is a player and reset target if so
+                if (golem.getTarget() instanceof Player) {
+                    golem.setTarget(null);
+                }
+            }
+            // Check if the damager is a projectile
+            else if (event.getDamager() instanceof Projectile projectile) {
+                // Check if the shooter of the projectile is a player
+                if (projectile.getShooter() instanceof Player player) {
+                    // Cancel the damage event to prevent retaliation
+                    event.setCancelled(true);
+
+                    // Check if the current target is a player and reset target if so
+                    if (golem.getTarget() instanceof Player) {
+                        golem.setTarget(null);
+                    }
+                }
+            }
+        }
+    }
 
     @EventHandler
+    public void onGolemTargetChange(EntityTargetLivingEntityEvent event) {
+        // Check if the entity targeting is an Iron Golem
+        if (event.getEntity() instanceof IronGolem golem) {
+            // If the target is a player, cancel the targeting
+            if (event.getTarget() instanceof Player) {
+                event.setCancelled(true);
+            }
+        }
+    }
+    // Cancel all hostile mob spawns unless they are custom spawns by your plugin
+    @EventHandler
     public void onCreatureSpawn(CreatureSpawnEvent event) {
-        // Cancel all hostile mob spawns unless they are custom spawns by your plugin
+
         if (event.getEntity() instanceof Mob && isHostileMob(event.getEntityType()) &&
                 event.getSpawnReason() != CreatureSpawnEvent.SpawnReason.CUSTOM) {
             event.setCancelled(true);
